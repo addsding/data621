@@ -41,6 +41,7 @@ To start, we'll begin by getting an idea of what our data looks like. First, we'
 
 ```{r import_data}
 training <- read.csv('~/moneyball-training-data.csv')
+asdfawe
 ```
 Describe the size and the variables in the moneyball training data set. Consider that too much detail will cause a
 manager to lose interest while too little detail will make the manager consider that you aren’t doing your job. Some

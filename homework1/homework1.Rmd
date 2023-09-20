@@ -1,0 +1,52 @@
+---
+title: 'Homework #1'
+author: "Alice Ding"
+date: "2023-09-20"
+output: pdf_document
+---
+
+
+## Overview
+In this homework assignment, I will explore, analyze and model a data set containing approximately 2200
+records. Each record represents a professional baseball team from the years 1871 to 2006 inclusive. Each record
+has the performance of the team for the given year, with all of the statistics adjusted to match the performance of
+a 162 game season.
+
+The objective is to build a multiple linear regression model on the training data to predict the number of wins
+for the team. You can only use the variables given to you (or variables that you derive from the variables
+provided). Below is a short description of the variables of interest in the data set:
+
+- INDEX: Identification Variable (do not use)
+- TARGET_WINS: Number of wins
+- TEAM_BATTING_H: Base Hits by batters (1B,2B,3B,HR); Positive Impact on Wins
+- TEAM_BATTING_2B: Doubles by batters (2B); Positive Impact on Wins
+- TEAM_BATTING_3B: Triples by batters (3B); Positive Impact on Wins
+- TEAM_BATTING_HR: Homeruns by batters (4B); Positive Impact on Wins
+- TEAM_BATTING_BB: Walks by batters; Positive Impact on Wins
+- TEAM_BATTING_HBP: Batters hit by pitch (get a free base); Positive Impact on Wins
+- TEAM_BATTING_SO: Strikeouts by batters; Negative Impact on Wins
+- TEAM_BASERUN_SB: Stolen bases; Positive Impact on Wins
+- TEAM_BASERUN_CS: Caught stealing; Negative Impact on Wins
+- TEAM_FIELDING_E: Errors; Negative Impact on Wins
+- TEAM_FIELDING_DP: Double Plays; Positive Impact on Wins
+- TEAM_PITCHING_BB: Walks allowed; Negative Impact on Wins
+- TEAM_PITCHING_H: Hits allowed; Negative Impact on Wins
+- TEAM_PITCHING_HR: Homeruns allowed; Negative Impact on Wins
+- TEAM_PITCHING_SO: Strikeouts by pitchers; Positive Impact on Wins
+
+Using `moneyball-training-data.csv` and `moneyball-evaluation-data.csv`, I will explore the data, prepare the data, build a few multiple regression models, and then choose the one that best fits in order to predict the number of wins.
+
+## Data Exploration
+To start, we'll begin by getting an idea of what our data looks like. First, we'll check if there are datapoints missing and clean the fields up to make sure they're ready for analysis.
+
+```{r import_data}
+training <- read.csv('~/moneyball-training-data.csv')
+```
+Describe the size and the variables in the moneyball training data set. Consider that too much detail will cause a
+manager to lose interest while too little detail will make the manager consider that you aren’t doing your job. Some
+suggestions are given below. Please do NOT treat this as a check list of things to do to complete the assignment.
+You should have your own thoughts on what to tell the boss. These are just ideas.
+a. Mean / Standard Deviation / Median
+b. Bar Chart or Box Plot of the data
+c. Is the data correlated to the target variable (or to other variables?)
+d. Are any of the variables missing and need to be imputed “fixed”?

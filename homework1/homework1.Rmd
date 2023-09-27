@@ -5,9 +5,20 @@ date: "2023-09-20"
 output: pdf_document
 ---
 
+```{r echo=FALSE}
+library(dplyr)
+library(ggplot2)
+library(psych)
+library(cowplot)
+library(GGally)
+library(corrplot)
+library(RColorBrewer)
+library(MASS)
+```
 
 ## Overview
-In this homework assignment, I will explore, analyze and model a data set containing approximately 2200
+
+In this homework assignment, we will explore, analyze and model a data set containing approximately 2200
 records. Each record represents a professional baseball team from the years 1871 to 2006 inclusive. Each record
 has the performance of the team for the given year, with all of the statistics adjusted to match the performance of
 a 162 game season.
@@ -34,20 +45,354 @@ provided). Below is a short description of the variables of interest in the data
 - TEAM_PITCHING_HR: Homeruns allowed; Negative Impact on Wins
 - TEAM_PITCHING_SO: Strikeouts by pitchers; Positive Impact on Wins
 
-Using `moneyball-training-data.csv` and `moneyball-evaluation-data.csv`, I will explore the data, prepare the data, build a few multiple regression models, and then choose the one that best fits in order to predict the number of wins.
+Using `moneyball-training-data.csv` and `moneyball-evaluation-data.csv`, we will explore the data, prepare the data, build a few multiple regression models, and then choose the one that best fits in order to predict the number of wins.
 
 ## Data Exploration
-To start, we'll begin by getting an idea of what our data looks like. First, we'll check if there are datapoints missing and clean the fields up to make sure they're ready for analysis.
+
+To start, we'll begin by getting an idea of what our data looks like. 
+
+### Overall Stats
+
+First, I'll view the summary and then I'll check if there are datapoints missing and clean the fields up to make sure they're ready for analysis.
 
 ```{r import_data}
-training <- read.csv('~/moneyball-training-data.csv')
-asdfawe
+training <- read.csv('https://raw.githubusercontent.com/addsding/data621/main/homework1/moneyball-training-data.csv')
+evaluation <- read.csv('https://raw.githubusercontent.com/addsding/data621/main/homework1/moneyball-evaluation-data.csv')
+summary <- as.data.frame(describe(training))
+nulls <- 2276 - summary['n']
+nulls_pct <- nulls / 2276
+summary['nulls'] <- nulls
+summary['nulls_pct'] <- nulls_pct
+summary
 ```
-Describe the size and the variables in the moneyball training data set. Consider that too much detail will cause a
-manager to lose interest while too little detail will make the manager consider that you aren’t doing your job. Some
-suggestions are given below. Please do NOT treat this as a check list of things to do to complete the assignment.
-You should have your own thoughts on what to tell the boss. These are just ideas.
-a. Mean / Standard Deviation / Median
-b. Bar Chart or Box Plot of the data
-c. Is the data correlated to the target variable (or to other variables?)
-d. Are any of the variables missing and need to be imputed “fixed”?
+
+One interesting thing to point out from the start is that the average wins for a team is ~81; there are 162 games in a season as given by the description of the dataset, so that means a team wins about half their games and loses the other. Some other interesting stats to bring to light are an average of ~100 home runs, ~736 strike outs, and ~502 walks by batters over the course of the season which would equal ~0.6 home runs, ~4.5 strike outs, and ~3 walks per game.
+
+Inspecting for missing data, it looks like there's quite a few with NA's; we'll deal with those in the data preparation section.
+
+### Distributions
+
+Let's see what all of these fields look like distribution wise.
+
+```{r distribution_hist}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+my_plots_hist <- lapply(names(training[2:17]), function(var_x){
+  p <- 
+    ggplot(training[2:17]) +
+    aes_string(var_x)
+  p <- p + geom_histogram()
+})
+
+plot_grid(plotlist = my_plots_hist)
+```
+
+At first glance, it looks like these fields are relatively normal or have a good curve:
+- `TARGET_WINS`
+- `TEAM_BATTING_H`
+- `TEAM_BATTING_2B`
+- `TEAM_BATTING_BB`
+- `TEAM_PITCHING_BB`
+- `TEAM_FIELDING_DP`
+
+The rest either are pretty skewed in either direction or have no pattern really at all.
+
+How do these look as boxplots?
+
+```{r distribution_box}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+my_plots_box <- lapply(names(training[2:17]), function(var_x){
+  p <- 
+    ggplot(training[2:17]) +
+    aes_string(var_x)
+    p <- p + geom_boxplot()
+})
+
+plot_grid(plotlist = my_plots_box)
+```
+
+In many of these fields, there seems to be quite a lot of outliers that may need to be imputed.
+
+Now that we have a sense of how the data is distributed, what about the relationships between the variables as well as with our target?
+
+### Correlations and Relationships
+
+Let's see how each of these fields correlates with `TARGET_WINS` -- we'll start with the batting fields.
+
+```{r correlation_1}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+ggpairs(training[, c('TARGET_WINS', 'TEAM_BATTING_H', 'TEAM_BATTING_2B', 'TEAM_BATTING_3B', 'TEAM_BATTING_HR', 'TEAM_BATTING_BB', 'TEAM_BATTING_SO', 'TEAM_BATTING_HBP')])
+```
+
+Interestingly, it seems that every field is positively correlated except for `TEAM_BATTING_SO` (which makes sense as we were told that they have a positive impact except for the last one) and the positively impacted ones are ones that are statistically significant, minus `TEAM_BATTING_HBP`. 
+
+These fields are also pretty correlated with one another for the most part which may serve as an issue for our model.
+
+What do the relationships look like for the rest of the fields?
+
+```{r correlation_1}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+library(GGally)
+ggpairs(training[, c('TARGET_WINS', 'TEAM_BASERUN_SB', 'TEAM_BASERUN_CS', 'TEAM_PITCHING_H', 'TEAM_PITCHING_HR', 'TEAM_PITCHING_BB', 'TEAM_PITCHING_SO', 'TEAM_FIELDING_E', 'TEAM_FIELDING_DP')])
+```
+
+Out of all of these fields, there are three with negative impacts:
+- `TEAM_PITCHING_H`
+- `TEAM_PITCHING_SO`
+- `TEAM_PITCHING_E`
+- `TEAM_FIELDING_DP`
+
+And the only ones that aren't statistically significant are:
+- `TEAM_BASERUN_CS`
+- `TEAM_FIELDING_DP`
+
+Again, these fields are also pretty correlated with each other which may be an issue.
+
+To view a more concise correlation analysis overall:
+
+```{r correlation_3}
+correlation = cor(training, use = 'pairwise.complete.obs')
+
+corrplot(correlation, 'ellipse', type = 'lower', order = 'hclust',
+         col=brewer.pal(n=8, name="RdYlBu"))
+```
+
+Looking at this, we can see an extremely strong correlation between `TEAM_PITCHING_HR` and `TEAM_BATTING_HR`.
+
+Keeping this information in mind as we move closer to creating our model, we'll move to the next step of preparing our data.
+
+## Data Preparation
+
+### Missing Data
+
+We saw earlier that quite a few fields had missing data; to deal with each of these, the details will be below as we should handle situations on a case-by-case basis. We will use a limit of 20% as the max we will allow for missing data. Note that median was picked a majority of the time here as it is less prone to outliers than average:
+- `TEAM_BATTING_SO`: 102 NA's (4.48%) -- imputing median 
+- `TEAM_BASERUN_SB`: 131 NA's (5.76%) -- imputing median
+- `TEAM_BASERUN_CS`: 772 NA's (33.92%) -- too much missing, removing this field
+- `TEAM_BATTING_HBP`: 2085 NA's (91.61%) -- too much missing, removing this field
+- `TEAM_PITCHING_SO`: 102 NA's (4.48%) -- imputing median
+- `TEAM_FIELDING_DP`: 286 NA's (12.57%) -- imputing median
+
+In addition to these changes, we will remove the following fields:
+- `INDEX`: told not to use
+- `TEAM_PITCHING_HR`: due to the high correlation with `TEAM_BATTING_HR`, this is being removed for a cleaner dataset
+
+```{r replace_nas}
+training$TEAM_BATTING_SO[is.na(training$TEAM_BATTING_SO)] <- median(training$TEAM_BATTING_SO, na.rm=TRUE)
+training$TEAM_BASERUN_SB[is.na(training$TEAM_BASERUN_SB)] <- median(training$TEAM_BASERUN_SB, na.rm=TRUE)
+training$TEAM_PITCHING_SO[is.na(training$TEAM_PITCHING_SO)] <- median(training$TEAM_PITCHING_SO, na.rm=TRUE)
+training$TEAM_FIELDING_DP[is.na(training$TEAM_FIELDING_DP)] <- median(training$TEAM_FIELDING_DP, na.rm=TRUE)
+
+training <- subset(training, select = -c(TEAM_BATTING_HBP, TEAM_BASERUN_CS, INDEX, TEAM_PITCHING_HR))
+summary <- as.data.frame(describe(training))
+nulls <- 2276 - summary['n']
+nulls_pct <- nulls / 2276
+summary['nulls'] <- nulls
+summary['nulls_pct'] <- nulls_pct
+summary
+```
+
+No more nulls!
+
+### Outliers
+
+There are some pretty extreme outliers scattered throughout most of the fields (see the boxplot in the previous section). While it is understandable that these may happen occasionally, it is a safe assumption to believe that the really extreme ones won't happen in your average game. To account for these, we will use the median of the data again to replace these outliers if they are more than four standard deviations from the mean for the following fields:
+
+- TEAM_BATTING_H: 16 records
+- TEAM_BATTING_3B: 4 records
+- TEAM_BASERUN_SB: 19 records
+- TEAM_PITCHING_H: 21 records
+- TEAM_PITCHING_BB: 10 records
+- TEAM_PITCHING_SO: 5 records
+- TEAM_FIELDING_E: 29 records
+
+This will be a total of 104 changed records.
+
+```{r replace_outliers}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+# 16 records
+training$TEAM_BATTING_H[training$TEAM_BATTING_H > summary$mean[2] + summary$sd[2] * 4] <- median(training$TEAM_BATTING_H, na.rm=TRUE)
+# 4 records
+training$TEAM_BATTING_3B[training$TEAM_BATTING_3B > summary$mean[4] + summary$sd[4] * 4] <- median(training$TEAM_BATTING_3B, na.rm=TRUE)
+# 19 records
+training$TEAM_BASERUN_SB[training$TEAM_BASERUN_SB > summary$mean[8] + summary$sd[8] * 4] <- median(training$TEAM_BASERUN_SB, na.rm=TRUE)
+# 21 records
+training$TEAM_PITCHING_H[training$TEAM_PITCHING_H > summary$mean[9] + summary$sd[9] * 4] <- median(training$TEAM_PITCHING_H, na.rm=TRUE)
+# 10 records
+training$TEAM_PITCHING_BB[training$TEAM_PITCHING_BB > summary$mean[10] + summary$sd[10] * 4] <- median(training$TEAM_PITCHING_BB, na.rm=TRUE)
+# 5 records
+training$TEAM_PITCHING_SO[training$TEAM_PITCHING_SO > summary$mean[11] + summary$sd[11] * 4] <- median(training$TEAM_PITCHING_SO, na.rm=TRUE)
+# 29 records
+training$TEAM_FIELDING_E[training$TEAM_FIELDING_E > summary$mean[12] + summary$sd[12] * 4] <- median(training$TEAM_FIELDING_E, na.rm=TRUE) 
+
+my_plots_box <- lapply(names(training), function(var_x){
+  p <- 
+    ggplot(training) +
+    aes_string(var_x)
+    p <- p + geom_boxplot()
+})
+
+plot_grid(plotlist = my_plots_box)
+```
+
+Compared to the box plots before transforming this data, it does look a bit cleaner!
+
+### Transform Non-Normal Variables
+
+The last alteration before modeling is ensuring that our variables are normal by transforming the ones that don't seem to have much of normal distribution. The fields with distributions that aren't as normal are:
+
+- `TEAM_BATTING_3B`
+- `TEAM_BATTING_HR`
+- `TEAM_BATTING_SO`
+- `TEAM_BASERUN_SB`
+- `TEAM_PITCHING_H`
+- `TEAM_PITCHING_SO`
+- `TEAM_FIELDING_E`
+
+We'll try transforming these with `log` first and if that doesn't work, then we'll `sqrt` it.
+
+```{r transform_log}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+training$log_tbat3b <- ifelse(training$TEAM_BATTING_3B == 0, training$TEAM_BATTING_3B, log(training$TEAM_BATTING_3B))
+training$log_tbathr <- ifelse(training$TEAM_BATTING_HR == 0, training$TEAM_BATTING_HR, log(training$TEAM_BATTING_HR))
+training$log_tbatso <- ifelse(training$TEAM_BATTING_SO == 0, training$TEAM_BATTING_SO, log(training$TEAM_BATTING_SO))
+training$log_tbasesb <- ifelse(training$TEAM_BASERUN_SB == 0, training$TEAM_BASERUN_SB, log(training$TEAM_BASERUN_SB))
+training$log_tph <- ifelse(training$TEAM_PITCHING_H == 0, training$TEAM_PITCHING_H, log(training$TEAM_PITCHING_H))
+training$log_tpso <- ifelse(training$TEAM_PITCHING_SO == 0, training$TEAM_PITCHING_SO, log(training$TEAM_PITCHING_SO))
+training$log_tfe <- ifelse(training$TEAM_FIELDING_E == 0, training$TEAM_FIELDING_E, log(training$TEAM_FIELDING_E))
+
+my_plots_hist <- lapply(names(training[14:20]), function(var_x){
+  p <- 
+    ggplot(training[14:20]) +
+    aes_string(var_x)
+  p <- p + geom_histogram()
+})
+
+plot_grid(plotlist = my_plots_hist)
+```
+
+It looks like this fixed a few variables, however `TEAM_BATTING_HR`, `TEAM_BATTING_SO`, `TEAM_PITCHING_H`, and `TEAM_FIELDING_E` still look a little off. Let's trying using `sqrt` on them.
+
+```{r transform_sqrt}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+training$sqrt_tbathr <- sqrt(training$TEAM_BATTING_HR)
+training$sqrt_tbatso <- sqrt(training$TEAM_BATTING_SO)
+training$sqrt_tph <- sqrt(training$TEAM_PITCHING_H)
+training$sqrt_tfe <- sqrt(training$TEAM_FIELDING_E)
+
+my_plots_hist <- lapply(names(training[21:24]), function(var_x){
+  p <- 
+    ggplot(training[21:24]) +
+    aes_string(var_x)
+  p <- p + geom_histogram()
+})
+
+plot_grid(plotlist = my_plots_hist)
+```
+While not perfectly normal, these look better than how they started -- we can move onto modeling now that we've finished trying to transform all of our variables!
+
+## Model Creation
+
+### Model 1
+
+This first model will use all the fields pre-transformed ones.
+
+```{r model2}
+model1 <- lm(TARGET_WINS ~ 
+               TEAM_BATTING_H 
+             + TEAM_BATTING_2B 
+             + TEAM_BATTING_3B
+             + TEAM_BATTING_HR
+             + TEAM_BATTING_BB 
+             + TEAM_BATTING_SO
+             + TEAM_BASERUN_SB
+             + TEAM_FIELDING_E
+             + TEAM_FIELDING_DP
+             + TEAM_PITCHING_BB 
+             + TEAM_PITCHING_H 
+             + TEAM_PITCHING_SO 
+             , data = training)
+
+summary(model1)
+```
+
+#### Coefficient Evaluation
+
+Looking at the model's coefficients and whether they had a positive or negative impact, `TEAM_FIELDING_DP`, `TEAM_PITCHING_H`, and `TEAM_PITCHING_SO` do not make sense -- double plays should have a positive impact, hits allowed should have a negative impact, and strikeouts by pitchers should have a positive impact; it seems like these coefficients are counter-intuitive as they are all opposite. At the very least, the latter two don't have much of an impact on the numbers as their absolute values are less than 0.01 -- double plays however is at a 0.119 which is a bit more significant. Given how double plays has such a negative effect at a statistically significant code, we will remove this from the next model iteration.
+
+#### Significance Evaluation
+
+A majority of the fields used are statistically significant at a 0 code level sans `TEAM_BATTING_SO`, `TEAM_FIELDING_E`, and `TEAM_PITCHING_SO`. We have transformed versions of these fields so we will be using those now, specifically `sqrt_tbatso`, `sqrt_tfe`, and `log_tpso` as replacements.
+
+### Model 2
+
+To review the changes, we will be removing `TEAM_FIELDING_DP` in this model and using `sqrt_tbatso`, `sqrt_tfe`, and `log_tpso` instead of their original fields.
+
+```{r model2}
+model2 <- lm(TARGET_WINS ~ 
+               TEAM_BATTING_H 
+             + TEAM_BATTING_2B 
+             + TEAM_BATTING_3B
+             + TEAM_BATTING_HR
+             + TEAM_BATTING_BB 
+             + sqrt_tbatso
+             + TEAM_BASERUN_SB
+             + sqrt_tfe
+             + TEAM_PITCHING_BB 
+             + TEAM_PITCHING_H 
+             + log_tpso 
+             , data = training)
+
+summary(model2)
+```
+
+#### Coefficient Evaluation
+
+`TEAM_PITCHING_H` in this iteration is the only counter-intuitive coefficient value and it is still quite small in impact. Given it's still not a large variable, we'll opt to keep it in the next iteration.
+
+#### Significance Evaluation
+
+It's interesting how some variables seem to have lost some significance, primarily the intercept and `TEAM_BATTING_2B`. 
+
+Given how our transformed variables, while they performed better, still did not manage to reach any level of noteable significance, we'll opt to remove them from the next iteration alltogether. This includes `sqrt_tbatso`, `sqrt_tfe`, and `log_tpso`.
+
+### Model 3
+
+To summarize our changes, we will just be removing the `sqrt_tbatso`, `sqrt_tfe`, and `log_tpso` fields from the model in our third and final iteration.
+
+```{r model3}
+model3 <- lm(TARGET_WINS ~ 
+               TEAM_BATTING_H 
+             + TEAM_BATTING_2B 
+             + TEAM_BATTING_3B
+             + TEAM_BATTING_HR
+             + TEAM_BATTING_BB 
+             + TEAM_BASERUN_SB
+             + TEAM_PITCHING_BB 
+             + TEAM_PITCHING_H 
+             , data = training)
+
+summary(model3)
+```
+
+#### Coefficient Evaluation
+
+`TEAM_PITCHING_H` in this iteration is the only counter-intuitive coefficient value and it is still quite small in impact. Given it's still not a large variable, we'll opt to keep it in the next iteration.
+
+#### Significance Evaluation
+
+It's interesting how some variables seem to have lost some significance, primarily the intercept and `TEAM_BATTING_2B`. 
+
+Given how our transformed variables, while they performed better, still did not manage to reach any level of noteable significance, we'll opt to remove them from the next iteration alltogether. This includes `sqrt_tbatso`, `sqrt_tfe`, and `log_tpso`.
+
+
+Using the training data set, build at least three different multiple linear regression models, using different variables
+(or the same variables with different transformations). Since we have not yet covered automated variable
+selection methods, you should select the variables manually (unless you previously learned Forward or Stepwise
+selection, etc.). Since you manually selected a variable for inclusion into the model or exclusion into the model,
+indicate why this was done.
+Discuss the coefficients in the models, do they make sense? For example, if a team hits a lot of Home Runs, it
+would be reasonably expected that such a team would win more games. However, if the coefficient is negative
+(suggesting that the team would lose more games), then that needs to be discussed. Are you keeping the model
+even though it is counter intuitive? Why? The boss needs to know.

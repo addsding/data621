@@ -5,7 +5,7 @@ date: "2023-09-20"
 output: pdf_document
 ---
 
-```{r echo=FALSE}
+```{r imports, echo=FALSE, message=FALSE}
 library(dplyr)
 library(ggplot2)
 library(psych)
@@ -14,67 +14,66 @@ library(GGally)
 library(corrplot)
 library(RColorBrewer)
 library(MASS)
+library(caret)
+library(knitr)
+library(kableExtra)
 ```
 
-## Overview
+## Overview\
 
-In this homework assignment, we will explore, analyze and model a data set containing approximately 2200
-records. Each record represents a professional baseball team from the years 1871 to 2006 inclusive. Each record
-has the performance of the team for the given year, with all of the statistics adjusted to match the performance of
-a 162 game season.
+In this homework assignment, we will explore, analyze and model a data set containing approximately 2200 records. Each record represents a professional baseball team from the years 1871 to 2006 inclusive and has the performance of the team for the given year, with all of the statistics adjusted to match the performance of a 162 game season.
 
-The objective is to build a multiple linear regression model on the training data to predict the number of wins
-for the team. You can only use the variables given to you (or variables that you derive from the variables
-provided). Below is a short description of the variables of interest in the data set:
+The objective is to build a multiple linear regression model on the training data to predict the number of wins for the team. You can only use the variables given to you (or variables that you derive from the variables provided). Below is a short description of the variables of interest in the data set:
 
-- INDEX: Identification Variable (do not use)
-- TARGET_WINS: Number of wins
-- TEAM_BATTING_H: Base Hits by batters (1B,2B,3B,HR); Positive Impact on Wins
-- TEAM_BATTING_2B: Doubles by batters (2B); Positive Impact on Wins
-- TEAM_BATTING_3B: Triples by batters (3B); Positive Impact on Wins
-- TEAM_BATTING_HR: Homeruns by batters (4B); Positive Impact on Wins
-- TEAM_BATTING_BB: Walks by batters; Positive Impact on Wins
-- TEAM_BATTING_HBP: Batters hit by pitch (get a free base); Positive Impact on Wins
-- TEAM_BATTING_SO: Strikeouts by batters; Negative Impact on Wins
-- TEAM_BASERUN_SB: Stolen bases; Positive Impact on Wins
-- TEAM_BASERUN_CS: Caught stealing; Negative Impact on Wins
-- TEAM_FIELDING_E: Errors; Negative Impact on Wins
-- TEAM_FIELDING_DP: Double Plays; Positive Impact on Wins
-- TEAM_PITCHING_BB: Walks allowed; Negative Impact on Wins
-- TEAM_PITCHING_H: Hits allowed; Negative Impact on Wins
-- TEAM_PITCHING_HR: Homeruns allowed; Negative Impact on Wins
-- TEAM_PITCHING_SO: Strikeouts by pitchers; Positive Impact on Wins
+- `INDEX`: Identification Variable (do not use)
+- `TARGET_WINS`: Number of wins
+- `TEAM_BATTING_H`: Base Hits by batters (1B,2B,3B,HR); Positive Impact on Wins
+- `TEAM_BATTING_2B`: Doubles by batters (2B); Positive Impact on Wins
+- `TEAM_BATTING_3B`: Triples by batters (3B); Positive Impact on Wins
+- `TEAM_BATTING_HR`: Homeruns by batters (4B); Positive Impact on Wins
+- `TEAM_BATTING_BB`: Walks by batters; Positive Impact on Wins
+- `TEAM_BATTING_HBP`: Batters hit by pitch (get a free base); Positive Impact on Wins
+- `TEAM_BATTING_SO`: Strikeouts by batters; Negative Impact on Wins
+- `TEAM_BASERUN_SB`: Stolen bases; Positive Impact on Wins
+- `TEAM_BASERUN_CS`: Caught stealing; Negative Impact on Wins
+- `TEAM_FIELDING_E`: Errors; Negative Impact on Wins
+- `TEAM_FIELDING_DP`: Double Plays; Positive Impact on Wins
+- `TEAM_PITCHING_BB`: Walks allowed; Negative Impact on Wins
+- `TEAM_PITCHING_H`: Hits allowed; Negative Impact on Wins
+- `TEAM_PITCHING_HR`: Homeruns allowed; Negative Impact on Wins
+- `TEAM_PITCHING_SO`: Strikeouts by pitchers; Positive Impact on Wins
 
-Using `moneyball-training-data.csv` and `moneyball-evaluation-data.csv`, we will explore the data, prepare the data, build a few multiple regression models, and then choose the one that best fits in order to predict the number of wins.
+Using `moneyball-training-data.csv`, we will explore the data, prepare the data, build a few multiple regression models, and then choose the one that best fits in order to predict the number of wins.
 
-## Data Exploration
+## Data Exploration\
 
 To start, we'll begin by getting an idea of what our data looks like. 
 
-### Overall Stats
+### Overall Stats\
 
-First, I'll view the summary and then I'll check if there are datapoints missing and clean the fields up to make sure they're ready for analysis.
+First, we'll view the summary and then we'll check if there are data points missing before cleaning the fields up to make sure they're ready for analysis.
 
-```{r import_data}
+```{r import_data, echo=FALSE}
 training <- read.csv('https://raw.githubusercontent.com/addsding/data621/main/homework1/moneyball-training-data.csv')
-evaluation <- read.csv('https://raw.githubusercontent.com/addsding/data621/main/homework1/moneyball-evaluation-data.csv')
 summary <- as.data.frame(describe(training))
 nulls <- 2276 - summary['n']
 nulls_pct <- nulls / 2276
 summary['nulls'] <- nulls
 summary['nulls_pct'] <- nulls_pct
-summary
+kable(summary, digits=2) |>
+  kable_styling(c("striped", "scale_down")) |>
+  scroll_box(width = "100%")
 ```
 
 One interesting thing to point out from the start is that the average wins for a team is ~81; there are 162 games in a season as given by the description of the dataset, so that means a team wins about half their games and loses the other. Some other interesting stats to bring to light are an average of ~100 home runs, ~736 strike outs, and ~502 walks by batters over the course of the season which would equal ~0.6 home runs, ~4.5 strike outs, and ~3 walks per game.
 
 Inspecting for missing data, it looks like there's quite a few with NA's; we'll deal with those in the data preparation section.
 
-### Distributions
+### Distributions\
 
 Let's see what all of these fields look like distribution wise.
 
-```{r distribution_hist}
+```{r distribution_hist, echo=FALSE, message=FALSE, warning=FALSE}
 knitr::opts_chunk$set(warning = FALSE, message = FALSE)
 my_plots_hist <- lapply(names(training[2:17]), function(var_x){
   p <- 
@@ -87,6 +86,7 @@ plot_grid(plotlist = my_plots_hist)
 ```
 
 At first glance, it looks like these fields are relatively normal or have a good curve:
+
 - `TARGET_WINS`
 - `TEAM_BATTING_H`
 - `TEAM_BATTING_2B`
@@ -98,7 +98,7 @@ The rest either are pretty skewed in either direction or have no pattern really 
 
 How do these look as boxplots?
 
-```{r distribution_box}
+```{r distribution_box, echo=FALSE}
 knitr::opts_chunk$set(warning = FALSE, message = FALSE)
 my_plots_box <- lapply(names(training[2:17]), function(var_x){
   p <- 
@@ -112,36 +112,38 @@ plot_grid(plotlist = my_plots_box)
 
 In many of these fields, there seems to be quite a lot of outliers that may need to be imputed.
 
-Now that we have a sense of how the data is distributed, what about the relationships between the variables as well as with our target?
+Now that we have a sense of how the data is distributed, what do the relationships between the variables as well as with our target look like?
 
-### Correlations and Relationships
+### Correlations and Relationships\
 
 Let's see how each of these fields correlates with `TARGET_WINS` -- we'll start with the batting fields.
 
-```{r correlation_1}
+```{r correlation_1, echo=FALSE, message=FALSE, warning=FALSE}
 knitr::opts_chunk$set(warning = FALSE, message = FALSE)
 ggpairs(training[, c('TARGET_WINS', 'TEAM_BATTING_H', 'TEAM_BATTING_2B', 'TEAM_BATTING_3B', 'TEAM_BATTING_HR', 'TEAM_BATTING_BB', 'TEAM_BATTING_SO', 'TEAM_BATTING_HBP')])
 ```
 
-Interestingly, it seems that every field is positively correlated except for `TEAM_BATTING_SO` (which makes sense as we were told that they have a positive impact except for the last one) and the positively impacted ones are ones that are statistically significant, minus `TEAM_BATTING_HBP`. 
+Interestingly, it seems that every field is positively correlated except for `TEAM_BATTING_SO` (which makes sense as we were told that they have a positive impact except for the last one) and the positively impacted ones are ones that are statistically significant, minus `TEAM_BATTING_HBP`.
 
 These fields are also pretty correlated with one another for the most part which may serve as an issue for our model.
 
 What do the relationships look like for the rest of the fields?
 
-```{r correlation_1}
+```{r correlation_2, echo=FALSE, message=FALSE, warning=FALSE}
 knitr::opts_chunk$set(warning = FALSE, message = FALSE)
 library(GGally)
 ggpairs(training[, c('TARGET_WINS', 'TEAM_BASERUN_SB', 'TEAM_BASERUN_CS', 'TEAM_PITCHING_H', 'TEAM_PITCHING_HR', 'TEAM_PITCHING_BB', 'TEAM_PITCHING_SO', 'TEAM_FIELDING_E', 'TEAM_FIELDING_DP')])
 ```
 
-Out of all of these fields, there are three with negative impacts:
+Out of all of these fields, there are four with negative impacts:
+
 - `TEAM_PITCHING_H`
 - `TEAM_PITCHING_SO`
 - `TEAM_PITCHING_E`
 - `TEAM_FIELDING_DP`
 
 And the only ones that aren't statistically significant are:
+
 - `TEAM_BASERUN_CS`
 - `TEAM_FIELDING_DP`
 
@@ -149,7 +151,7 @@ Again, these fields are also pretty correlated with each other which may be an i
 
 To view a more concise correlation analysis overall:
 
-```{r correlation_3}
+```{r correlation_3, echo=FALSE}
 correlation = cor(training, use = 'pairwise.complete.obs')
 
 corrplot(correlation, 'ellipse', type = 'lower', order = 'hclust',
@@ -162,9 +164,10 @@ Keeping this information in mind as we move closer to creating our model, we'll 
 
 ## Data Preparation
 
-### Missing Data
+### Missing Data\
 
 We saw earlier that quite a few fields had missing data; to deal with each of these, the details will be below as we should handle situations on a case-by-case basis. We will use a limit of 20% as the max we will allow for missing data. Note that median was picked a majority of the time here as it is less prone to outliers than average:
+
 - `TEAM_BATTING_SO`: 102 NA's (4.48%) -- imputing median 
 - `TEAM_BASERUN_SB`: 131 NA's (5.76%) -- imputing median
 - `TEAM_BASERUN_CS`: 772 NA's (33.92%) -- too much missing, removing this field
@@ -173,10 +176,11 @@ We saw earlier that quite a few fields had missing data; to deal with each of th
 - `TEAM_FIELDING_DP`: 286 NA's (12.57%) -- imputing median
 
 In addition to these changes, we will remove the following fields:
+
 - `INDEX`: told not to use
 - `TEAM_PITCHING_HR`: due to the high correlation with `TEAM_BATTING_HR`, this is being removed for a cleaner dataset
 
-```{r replace_nas}
+```{r replace_nas, echo=FALSE}
 training$TEAM_BATTING_SO[is.na(training$TEAM_BATTING_SO)] <- median(training$TEAM_BATTING_SO, na.rm=TRUE)
 training$TEAM_BASERUN_SB[is.na(training$TEAM_BASERUN_SB)] <- median(training$TEAM_BASERUN_SB, na.rm=TRUE)
 training$TEAM_PITCHING_SO[is.na(training$TEAM_PITCHING_SO)] <- median(training$TEAM_PITCHING_SO, na.rm=TRUE)
@@ -188,7 +192,9 @@ nulls <- 2276 - summary['n']
 nulls_pct <- nulls / 2276
 summary['nulls'] <- nulls
 summary['nulls_pct'] <- nulls_pct
-summary
+kable(summary, digits=2) |>
+  kable_styling(c("striped", "scale_down")) |>
+  scroll_box(width = "100%")
 ```
 
 No more nulls!
@@ -197,17 +203,17 @@ No more nulls!
 
 There are some pretty extreme outliers scattered throughout most of the fields (see the boxplot in the previous section). While it is understandable that these may happen occasionally, it is a safe assumption to believe that the really extreme ones won't happen in your average game. To account for these, we will use the median of the data again to replace these outliers if they are more than four standard deviations from the mean for the following fields:
 
-- TEAM_BATTING_H: 16 records
-- TEAM_BATTING_3B: 4 records
-- TEAM_BASERUN_SB: 19 records
-- TEAM_PITCHING_H: 21 records
-- TEAM_PITCHING_BB: 10 records
-- TEAM_PITCHING_SO: 5 records
-- TEAM_FIELDING_E: 29 records
+- `TEAM_BATTING_H`: 16 records
+- `TEAM_BATTING_3B`: 4 records
+- `TEAM_BASERUN_SB`: 19 records
+- `TEAM_PITCHING_H`: 21 records
+- `TEAM_PITCHING_BB`: 10 records
+- `TEAM_PITCHING_SO`: 5 records
+- `TEAM_FIELDING_E`: 29 records
 
 This will be a total of 104 changed records.
 
-```{r replace_outliers}
+```{r replace_outliers, echo=FALSE}
 knitr::opts_chunk$set(warning = FALSE, message = FALSE)
 # 16 records
 training$TEAM_BATTING_H[training$TEAM_BATTING_H > summary$mean[2] + summary$sd[2] * 4] <- median(training$TEAM_BATTING_H, na.rm=TRUE)
@@ -236,7 +242,7 @@ plot_grid(plotlist = my_plots_box)
 
 Compared to the box plots before transforming this data, it does look a bit cleaner!
 
-### Transform Non-Normal Variables
+### Transform Non-Normal Variables\
 
 The last alteration before modeling is ensuring that our variables are normal by transforming the ones that don't seem to have much of normal distribution. The fields with distributions that aren't as normal are:
 
@@ -250,7 +256,7 @@ The last alteration before modeling is ensuring that our variables are normal by
 
 We'll try transforming these with `log` first and if that doesn't work, then we'll `sqrt` it.
 
-```{r transform_log}
+```{r transform_log, echo=FALSE}
 knitr::opts_chunk$set(warning = FALSE, message = FALSE)
 
 training$log_tbat3b <- ifelse(training$TEAM_BATTING_3B == 0, training$TEAM_BATTING_3B, log(training$TEAM_BATTING_3B))
@@ -273,7 +279,7 @@ plot_grid(plotlist = my_plots_hist)
 
 It looks like this fixed a few variables, however `TEAM_BATTING_HR`, `TEAM_BATTING_SO`, `TEAM_PITCHING_H`, and `TEAM_FIELDING_E` still look a little off. Let's trying using `sqrt` on them.
 
-```{r transform_sqrt}
+```{r transform_sqrt, echo=FALSE}
 knitr::opts_chunk$set(warning = FALSE, message = FALSE)
 
 training$sqrt_tbathr <- sqrt(training$TEAM_BATTING_HR)
@@ -292,14 +298,28 @@ plot_grid(plotlist = my_plots_hist)
 ```
 While not perfectly normal, these look better than how they started -- we can move onto modeling now that we've finished trying to transform all of our variables!
 
-## Model Creation
+## Model Creation\
 
-### Model 1
+Before doing anything, we will split the data into training and test sets with a 70/30 split.
+
+```{r split, echo=FALSE, message=FALSE}
+set.seed(123)
+train_index <- createDataPartition(training$TARGET_WINS, p = .7, times = 1, list = FALSE)
+train <- training[train_index,]
+test <- training[-train_index,]
+```
+
+We'll go through two sets of models:
+
+- Model 1: Start from using all the coefficients as is and only use the transformed ones if they don't seem to have a solid impact on the model
+- Model 2: Start with all normalized (to the best of our ability) variables and select from there
+
+### Model 1A\
 
 This first model will use all the fields pre-transformed ones.
 
-```{r model2}
-model1 <- lm(TARGET_WINS ~ 
+```{r model1a, echo=FALSE}
+model1a <- lm(TARGET_WINS ~ 
                TEAM_BATTING_H 
              + TEAM_BATTING_2B 
              + TEAM_BATTING_3B
@@ -312,25 +332,33 @@ model1 <- lm(TARGET_WINS ~
              + TEAM_PITCHING_BB 
              + TEAM_PITCHING_H 
              + TEAM_PITCHING_SO 
-             , data = training)
+             , data = train)
 
-summary(model1)
+summary(model1a)
 ```
 
-#### Coefficient Evaluation
+#### Coefficient Evaluation\
 
-Looking at the model's coefficients and whether they had a positive or negative impact, `TEAM_FIELDING_DP`, `TEAM_PITCHING_H`, and `TEAM_PITCHING_SO` do not make sense -- double plays should have a positive impact, hits allowed should have a negative impact, and strikeouts by pitchers should have a positive impact; it seems like these coefficients are counter-intuitive as they are all opposite. At the very least, the latter two don't have much of an impact on the numbers as their absolute values are less than 0.01 -- double plays however is at a 0.119 which is a bit more significant. Given how double plays has such a negative effect at a statistically significant code, we will remove this from the next model iteration.
+Looking at the model's coefficients and whether they had a positive or negative impact, `TEAM_FIELDING_E`, `TEAM_FIELDING_DP`, `TEAM_PITCHING_H`, and `TEAM_PITCHING_SO` do not make sense -- double plays should have a positive impact, hits allowed should have a negative impact, and strikeouts by pitchers should have a positive impact; it seems like these coefficients are counter-intuitive as they are all opposite. 
 
-#### Significance Evaluation
+There are several possible reasons for this mismatch:
 
-A majority of the fields used are statistically significant at a 0 code level sans `TEAM_BATTING_SO`, `TEAM_FIELDING_E`, and `TEAM_PITCHING_SO`. We have transformed versions of these fields so we will be using those now, specifically `sqrt_tbatso`, `sqrt_tfe`, and `log_tpso` as replacements.
+- Collinearity: It's possible that these fields are correlated with other variables that have a stronger negative/positive impact on wins (depending on the direction they're going in) that are opposite what we expect.
+- Sample Size: The effect of these factors on wins may be subtle and require a larger sample size to be accurately reflected in the model.
+- Interactions: There might be interactions or nonlinear relationships at play that the linear regression model cannot capture.
 
-### Model 2
+At the very least, `TEAM_FIELDING_E`, `TEAM_PITCHING_H`, and `TEAM_PITCHING_SO` don't have much of an impact on the numbers as their absolute values are less than 0.01 -- `TEAM_FIELDING_DP` however is at a -0.123 which holds a bit more power. We'll opt to drop the first three due to their small impact and keep the last as it seems to be important to the model.
 
-To review the changes, we will be removing `TEAM_FIELDING_DP` in this model and using `sqrt_tbatso`, `sqrt_tfe`, and `log_tpso` instead of their original fields.
+#### Significance Evaluation\
 
-```{r model2}
-model2 <- lm(TARGET_WINS ~ 
+A majority of the fields used are statistically significant at a 0 code level sans `TEAM_BATTING_SO`, `TEAM_FIELDING_E`, and `TEAM_PITCHING_SO`. We have transformed versions of these fields so we will be using that now, specifically `sqrt_tbatso` (`TEAM_FIELDING_E` and `TEAM_PITCHING_SO` were dropped in the previous step).
+
+### Model 1B
+
+To review the changes, we will be removing `TEAM_FIELDING_E`, `TEAM_PITCHING_H`, and `TEAM_PITCHING_SO` in this model and using `sqrt_tbatso` instead of its original field.
+
+```{r model1b, echo=FALSE}
+model1b <- lm(TARGET_WINS ~ 
                TEAM_BATTING_H 
              + TEAM_BATTING_2B 
              + TEAM_BATTING_3B
@@ -338,61 +366,189 @@ model2 <- lm(TARGET_WINS ~
              + TEAM_BATTING_BB 
              + sqrt_tbatso
              + TEAM_BASERUN_SB
-             + sqrt_tfe
+             + TEAM_FIELDING_DP
              + TEAM_PITCHING_BB 
-             + TEAM_PITCHING_H 
-             + log_tpso 
-             , data = training)
+             , data = train)
 
-summary(model2)
+summary(model1b)
 ```
 
-#### Coefficient Evaluation
+#### Coefficient Evaluation\
 
-`TEAM_PITCHING_H` in this iteration is the only counter-intuitive coefficient value and it is still quite small in impact. Given it's still not a large variable, we'll opt to keep it in the next iteration.
+`TEAM_FIELDING_DP` is still negative in this model and actually has more of an impact in this model than the previous. It is very statistically significant and so we will opt to keep it for the next run.
 
-#### Significance Evaluation
+#### Significance Evaluation\
 
-It's interesting how some variables seem to have lost some significance, primarily the intercept and `TEAM_BATTING_2B`. 
+It's interesting how `TEAM_BATTING_2B` seems to have lost most of its significance. We can test out removing it in our next iteration.
 
-Given how our transformed variables, while they performed better, still did not manage to reach any level of noteable significance, we'll opt to remove them from the next iteration alltogether. This includes `sqrt_tbatso`, `sqrt_tfe`, and `log_tpso`.
+Our transformed `sqrt_tbatso` seems to have performed much better in the meantime and we'll continue using it as is.
 
-### Model 3
+### Model 1C\
 
-To summarize our changes, we will just be removing the `sqrt_tbatso`, `sqrt_tfe`, and `log_tpso` fields from the model in our third and final iteration.
+To summarize our changes, we will just be removing `TEAM_BATTING_2B` from the model in our third iteration.
 
-```{r model3}
-model3 <- lm(TARGET_WINS ~ 
+```{r model1c, echo=FALSE}
+model1c <- lm(TARGET_WINS ~ 
                TEAM_BATTING_H 
-             + TEAM_BATTING_2B 
              + TEAM_BATTING_3B
              + TEAM_BATTING_HR
              + TEAM_BATTING_BB 
+             + sqrt_tbatso
              + TEAM_BASERUN_SB
+             + TEAM_FIELDING_DP
              + TEAM_PITCHING_BB 
-             + TEAM_PITCHING_H 
-             , data = training)
+             , data = train)
 
-summary(model3)
+summary(model1c)
 ```
 
-#### Coefficient Evaluation
+#### Coefficient Evaluation\
 
-`TEAM_PITCHING_H` in this iteration is the only counter-intuitive coefficient value and it is still quite small in impact. Given it's still not a large variable, we'll opt to keep it in the next iteration.
+`TEAM_PITCHING_H` in this iteration is the only counter-intuitive coefficient value and it is still quite small in impact.
 
-#### Significance Evaluation
+#### Significance Evaluation\
 
-It's interesting how some variables seem to have lost some significance, primarily the intercept and `TEAM_BATTING_2B`. 
+Interestingly enough, all of our variables are at a high level of significance.
 
-Given how our transformed variables, while they performed better, still did not manage to reach any level of noteable significance, we'll opt to remove them from the next iteration alltogether. This includes `sqrt_tbatso`, `sqrt_tfe`, and `log_tpso`.
+Overall, this model performed pretty similarly to the previous iteration.
 
+### Model 2A\
 
-Using the training data set, build at least three different multiple linear regression models, using different variables
-(or the same variables with different transformations). Since we have not yet covered automated variable
-selection methods, you should select the variables manually (unless you previously learned Forward or Stepwise
-selection, etc.). Since you manually selected a variable for inclusion into the model or exclusion into the model,
-indicate why this was done.
-Discuss the coefficients in the models, do they make sense? For example, if a team hits a lot of Home Runs, it
-would be reasonably expected that such a team would win more games. However, if the coefficient is negative
-(suggesting that the team would lose more games), then that needs to be discussed. Are you keeping the model
-even though it is counter intuitive? Why? The boss needs to know.
+This model will begin using normalized variables and transformed versions if their original forms aren't normal.
+
+```{r model2a, echo=FALSE}
+model2a <- lm(TARGET_WINS ~ 
+               TEAM_BATTING_H 
+             + TEAM_BATTING_2B 
+             + log_tbat3b
+             + sqrt_tbathr
+             + TEAM_BATTING_BB 
+             + sqrt_tbatso
+             + log_tbasesb
+             + sqrt_tfe
+             + TEAM_FIELDING_DP
+             + TEAM_PITCHING_BB 
+             + sqrt_tph 
+             + log_tpso 
+             , data = train)
+
+summary(model2a)
+```
+
+#### Coefficient Evaluation\
+
+Similar to model 1, `TEAM_FIELDING_DP`, `sqrt_tfe`, `sqrt_tph`, and `log_tpso` are counter intuitive for this model where there expected impact does not match the coefficient presented. Nonetheless, all of these fields have a strong level of significance and a high level of impact; due to these factors, we will opt to keep them in the model even though it doesn't make sense conceptually.
+
+#### Significance Evaluation\
+
+`TEAM_BATTING_2B`, `sqrt_tfe`, `log_tpso`, and our intercept suffer from not being significant in this model; since they are nowhere near close to even being slightly significant, we will opt to remove the features mentioned from the next iteration as there's nothing we can do about the intercept.
+
+### Model 2B\
+
+This model removes `TEAM_BATTING_2B`, `sqrt_tfe` and `log_tpso` from this iteration.
+
+```{r model2b, echo=FALSE}
+model2b <- lm(TARGET_WINS ~ 
+               TEAM_BATTING_H 
+             + log_tbat3b
+             + sqrt_tbathr
+             + TEAM_BATTING_BB 
+             + sqrt_tbatso
+             + log_tbasesb
+             + TEAM_FIELDING_DP
+             + TEAM_PITCHING_BB 
+             + sqrt_tph 
+             , data = train)
+
+summary(model2b)
+```
+
+#### Coefficient Evaluation\
+
+Once again, `TEAM_FIELDING_DP` and `sqrt_tph` continue to be counterintuitive yet at a high level of significance.
+
+#### Significance Evaluation\
+
+The intercept has gotten closer to significance, however it still hasn't reached at least 0.1, unfortunately.
+
+## Model Selection\
+
+We'll start by looking at mean squared error, adjusted r-squared, and F-statistics before plotting residuals after.
+
+```{r comparing, echo=FALSE}
+# function to pull out performance statistics
+model_perf <- function(model, model_summary) {
+  data.frame("MSE" = mean(model$residuals^2),
+             "Adjusted R-Squared" = model_summary$adj.r.squared,
+             "F-Statistic" = model_summary$fstatistic[1],
+             "F p-value" = pf(model_summary$fstatistic[1]
+                              , model_summary$fstatistic[2]
+                              , model_summary$fstatistic[3]
+                              , lower.tail=FALSE)
+  )
+}
+
+summary_table <- bind_rows(
+  model_perf(model1a, summary(model1a)),
+  model_perf(model1b, summary(model1b)),
+  model_perf(model1c, summary(model1c)),
+  model_perf(model2a, summary(model2a)),
+  model_perf(model2b, summary(model2b)),
+) 
+
+rownames(summary_table) <- c("Model 1A", "Model 1B", "Model 1C", "Model 2A", "Model 2B")
+
+summary_table
+```
+
+In general, it looks like all of these models performed similarly when comparing MSE values; the second iterations (2A and 2B) perform marginally better as they are lower in value. Looking at adjusted r-squared, the second iterations once again pull ahead slightly with 2A performing a bit better than 2B. With the f-statistics, model 1C has the highest at 67.41, however model 2B is not too far behind with 65.83.
+
+Next, we will compare how these models do with the test dataset and compare residuals.
+
+```{r residuals, echo=FALSE}
+results <- model1a %>% predict(train) %>% as.data.frame() %>% 
+  mutate(Predicted = train$TARGET_WINS, model = "Model 1A") %>% 
+  bind_rows(model1b %>% predict(train) %>% as.data.frame() %>% 
+              mutate(Predicted = train$TARGET_WINS, model = "Model 1B"),
+            model1c %>% predict(train) %>% as.data.frame() %>% 
+              mutate(Predicted = train$TARGET_WINS, model = "Model 1C"),
+            model2a %>% predict(train) %>% as.data.frame() %>% 
+              mutate(Predicted = train$TARGET_WINS, model = "Model 2A"),
+            model2b %>% predict(train) %>% as.data.frame() %>% 
+              mutate(Predicted = train$TARGET_WINS, model = "Model 2B")) %>% 
+  rename("Observed" = ".") %>% 
+  mutate(dataset = "Training Set") %>% 
+  bind_rows(
+    results_test <- model1a %>% predict(test) %>% as.data.frame() %>%
+      mutate(Predicted = test$TARGET_WINS, model = "Model 1A") %>% 
+      bind_rows(model1b %>% predict(test) %>% as.data.frame() %>% 
+                  mutate(Predicted = test$TARGET_WINS, model = "Model 1B"),
+                model1c %>% predict(test) %>% as.data.frame() %>% 
+                  mutate(Predicted = test$TARGET_WINS, model = "Model 1C"),
+                model2a %>% predict(test) %>% as.data.frame() %>% 
+                  mutate(Predicted = test$TARGET_WINS, model = "Model 2A"),
+                model2b %>% predict(test) %>% as.data.frame() %>% 
+                  mutate(Predicted = test$TARGET_WINS, model = "Model 2B")) %>% 
+      rename("Observed" = ".") %>% 
+      mutate(dataset = "Testing Set")
+  )
+
+results_with_rsq <- results %>%
+  group_by(dataset, model) %>%
+  summarize(r_squared = summary(lm(Predicted ~ Observed))$r.squared)
+
+results %>% 
+  ggplot(mapping = aes(x = Observed, y = Predicted)) +
+  geom_point(pch = 21, alpha = 0.25, fill = "#00abff") +
+  geom_smooth(method = "lm", color = "#ff9999") +
+  facet_wrap(dataset~model, ncol = 5) +
+  geom_text(data = results_with_rsq, aes(label = paste("R^2 =", round(r_squared, 3)),
+            x = Inf, y = -Inf), hjust = 1, vjust = 0, size = 4)
+
+```
+
+Interestingly, it seems that the first set of models performed better than the second iteration when using the test dataset. The best performing model was the first one which was just using all features in the state they're provided (so untransformed). Visually, the residual plots don't seem to vary too much; they all are around the same r-squared so the change between them isn't too apparent.
+
+### Final Selection\
+
+Based on all of the factors shown above, model 2B seems to be the most viable. It performs solidly when we compared the MSE, adjusted r-squared, and F-statistic while also was the slightly better performing one out of the second round of models when using the test dataset. It uses transformed/more normalized variables while also filtering out the statistically insignificant features as well, resulting in a well-performing model with relevant features.

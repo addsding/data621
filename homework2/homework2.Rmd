@@ -1,0 +1,149 @@
+---
+title: "Homework 2"
+author: "Alice Ding"
+date: "2023-10-05"
+output: pdf_document
+---
+
+## Overview
+
+In this homework assignment, we will work through various classification metrics. We will be asked to create functions in R to carry out the various calculations. You will also investigate some functions in packages that will let we obtain the equivalent results. Finally, we will create graphical output that also can be used to evaluate the output of classification models, such as binary logistic regression.
+
+### Exercise 1
+
+First, we will import the data.
+
+```{r ex1}
+df <- read.csv('https://raw.githubusercontent.com/addsding/data621/main/homework2/classification-output-data.csv')
+head(df)
+```
+
+
+### Exercise 2
+
+The data set has three key columns we will use:
+
+- `class`: the actual class for the observation
+- `scored.class`: the predicted class for the observation (based on a threshold of 0.5)
+- `scored.probability`: the predicted probability of success for the observation
+
+Now, we will use the table() function to get the raw confusion matrix for this scored dataset. 
+
+```{r ex2}
+data <- df[, c("class", "scored.class")]
+confusion_matrix <- table(data)
+confusion_matrix
+```
+
+Within this new confusion matrix, `class` represents the actual class (rows) while `scored.class` represents the predicted class (the columns).
+
+We can read this as:
+
+- 119 true negative observations (TN)
+- 5 false positive observations (FP)
+- 30 false negative observations (FN)
+- 27 true positive observations (TP)
+
+### Exercise 3
+
+Write a function that takes the data set as a dataframe, with actual and predicted classifications identified, and returns the accuracy of the predictions.
+
+```{r ex3}
+accuracy_function <- function(x) {
+  TP <- sum(x$class == 1 & x$scored.class == 1)
+  TN <- sum(x$class == 0 & x$scored.class == 0)
+  round((TP + TN)/nrow(x), 4)
+}
+
+accuracy_calc <- accuracy_function(data)
+accuracy_calc
+```
+
+### Exercise 4
+
+Write a function that takes the data set as a dataframe, with actual and predicted classifications identified, and returns the classification error rate of the predictions.
+
+```{r ex4}
+classification_error_function <- function(x) {
+  FP <- sum(x$class == 0 & x$scored.class == 1) 
+  FN <- sum(x$class == 1 & x$scored.class == 0)
+  round((FP + FN)/nrow(x), 4)
+}
+
+classification_error_calc <- classification_error_function(data)
+classification_error_calc
+```
+
+Next, we'll Verify that the accuracy error rate sum to one.
+
+```{r ex4_v}
+classification_error_calc + accuracy_calc
+```
+
+### Exercise 5
+
+Write a function that takes the data set as a dataframe, with actual and predicted classifications identified,
+and returns the precision of the predictions.
+
+```{r ex5}
+precision_function <- function(x) {
+  TP <- sum(x$class == 1 & x$scored.class == 1)  
+  FP <- sum(x$class == 0 & x$scored.class == 1)
+  round(TP/(TP + FP), 4)
+}
+
+precision_calc <- precision_function(data)
+precision_calc
+```
+
+### Exercise 6
+
+Write a function that takes the data set as a dataframe, with actual and predicted classifications identified,
+and returns the sensitivity of the predictions. Sensitivity is also known as recall.
+
+```{r ex6}
+sensitivity_function <- function(x) {
+  TP <- sum(x$class == 1 & x$scored.class == 1)  
+  FN <- sum(x$class == 1 & x$scored.class == 0)
+  round(TP/(TP + FN), 4)
+}
+
+sensitivity_calc <- sensitivity_function(data)
+sensitivity_calc
+```
+
+### Exercise 7
+
+Write a function that takes the data set as a dataframe, with actual and predicted classifications identified,
+and returns the specificity of the predictions.
+
+```{r step6}
+sensitivity_function <- function(x) {
+  TP <- sum(x$class == 1 & x$scored.class == 1)  
+  FN <- sum(x$class == 1 & x$scored.class == 0)
+  round(TP/(TP + FN), 4)
+}
+
+sensitivity_calc <- sensitivity_function(data)
+sensitivity_calc
+```
+𝑆𝑝𝑒𝑐𝑖𝑓𝑖𝑐𝑖𝑡𝑦 =
+𝑇𝑁
+𝑇𝑁 + 𝐹𝑃
+8. Write a function that takes the data set as a dataframe, with actual and predicted classifications identified,
+and returns the F1 score of the predictions.
+𝐹1 𝑆𝑐𝑜𝑟𝑒 =
+2 × 𝑃𝑟𝑒𝑐𝑖𝑠𝑖𝑜𝑛 × 𝑆𝑒𝑛𝑠𝑖𝑡𝑖𝑣𝑖𝑡𝑦
+𝑃𝑟𝑒𝑐𝑖𝑠𝑖𝑜𝑛 + 𝑆𝑒𝑛𝑠𝑖𝑡𝑖𝑣𝑖𝑡𝑦
+9. Before we move on, let’s consider a question that was asked: What are the bounds on the F1 score? Show
+that the F1 score will always be between 0 and 1. (Hint: If 0 < 𝑎 < 1 and 0 < 𝑏 < 1 then 𝑎𝑏 < 𝑎.)
+10. Write a function that generates an ROC curve from a data set with a true classification column (class in our
+example) and a probability column (scored.probability in our example). Your function should return a list
+that includes the plot of the ROC curve and a vector that contains the calculated area under the curve
+(AUC). Note that I recommend using a sequence of thresholds ranging from 0 to 1 at 0.01 intervals.
+11. Use your created R functions and the provided classification output data set to produce all of the
+classification metrics discussed above.
+12. Investigate the caret package. In particular, consider the functions confusionMatrix, sensitivity, and
+specificity. Apply the functions to the data set. How do the results compare with your own functions?
+13. Investigate the pROC package. Use it to generate an ROC curve for the data set. How do the results
+compare with your own functions?

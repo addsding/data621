@@ -18,7 +18,6 @@ df <- read.csv('https://raw.githubusercontent.com/addsding/data621/main/homework
 head(df)
 ```
 
-
 ### Exercise 2
 
 The data set has three key columns we will use:
@@ -59,13 +58,15 @@ accuracy_calc <- accuracy_function(data)
 accuracy_calc
 ```
 
+The accuracy is 0.8066.
+
 ### Exercise 4
 
 Write a function that takes the data set as a dataframe, with actual and predicted classifications identified, and returns the classification error rate of the predictions.
 
 ```{r ex4}
 classification_error_function <- function(x) {
-  FP <- sum(x$class == 0 & x$scored.class == 1) 
+  FP <- sum(x$class == 0 & x$scored.class == 1)
   FN <- sum(x$class == 1 & x$scored.class == 0)
   round((FP + FN)/nrow(x), 4)
 }
@@ -73,6 +74,8 @@ classification_error_function <- function(x) {
 classification_error_calc <- classification_error_function(data)
 classification_error_calc
 ```
+
+The error is 0.1934. 
 
 Next, we'll Verify that the accuracy error rate sum to one.
 
@@ -87,7 +90,7 @@ and returns the precision of the predictions.
 
 ```{r ex5}
 precision_function <- function(x) {
-  TP <- sum(x$class == 1 & x$scored.class == 1)  
+  TP <- sum(x$class == 1 & x$scored.class == 1)
   FP <- sum(x$class == 0 & x$scored.class == 1)
   round(TP/(TP + FP), 4)
 }
@@ -96,6 +99,8 @@ precision_calc <- precision_function(data)
 precision_calc
 ```
 
+The precision is 0.8438.
+
 ### Exercise 6
 
 Write a function that takes the data set as a dataframe, with actual and predicted classifications identified,
@@ -103,7 +108,7 @@ and returns the sensitivity of the predictions. Sensitivity is also known as rec
 
 ```{r ex6}
 sensitivity_function <- function(x) {
-  TP <- sum(x$class == 1 & x$scored.class == 1)  
+  TP <- sum(x$class == 1 & x$scored.class == 1)
   FN <- sum(x$class == 1 & x$scored.class == 0)
   round(TP/(TP + FN), 4)
 }
@@ -111,39 +116,157 @@ sensitivity_function <- function(x) {
 sensitivity_calc <- sensitivity_function(data)
 sensitivity_calc
 ```
+
+The sensitivity is 0.4737.
 
 ### Exercise 7
 
 Write a function that takes the data set as a dataframe, with actual and predicted classifications identified,
 and returns the specificity of the predictions.
 
-```{r step6}
-sensitivity_function <- function(x) {
-  TP <- sum(x$class == 1 & x$scored.class == 1)  
-  FN <- sum(x$class == 1 & x$scored.class == 0)
-  round(TP/(TP + FN), 4)
+```{r ex7}
+specificity_function <- function(x) {
+  TN <- sum(x$class == 0 & x$scored.class == 0)
+  FP <- sum(x$class == 0 & x$scored.class == 1)
+  round(TN/(TN + FP), 4)
 }
 
-sensitivity_calc <- sensitivity_function(data)
-sensitivity_calc
+specificity_calc <- specificity_function(data)
+specificity_calc
 ```
-𝑆𝑝𝑒𝑐𝑖𝑓𝑖𝑐𝑖𝑡𝑦 =
-𝑇𝑁
-𝑇𝑁 + 𝐹𝑃
-8. Write a function that takes the data set as a dataframe, with actual and predicted classifications identified,
+
+The specificity is 0.9597.
+
+### Exercise 8
+
+Write a function that takes the data set as a dataframe, with actual and predicted classifications identified,
 and returns the F1 score of the predictions.
-𝐹1 𝑆𝑐𝑜𝑟𝑒 =
-2 × 𝑃𝑟𝑒𝑐𝑖𝑠𝑖𝑜𝑛 × 𝑆𝑒𝑛𝑠𝑖𝑡𝑖𝑣𝑖𝑡𝑦
-𝑃𝑟𝑒𝑐𝑖𝑠𝑖𝑜𝑛 + 𝑆𝑒𝑛𝑠𝑖𝑡𝑖𝑣𝑖𝑡𝑦
-9. Before we move on, let’s consider a question that was asked: What are the bounds on the F1 score? Show
-that the F1 score will always be between 0 and 1. (Hint: If 0 < 𝑎 < 1 and 0 < 𝑏 < 1 then 𝑎𝑏 < 𝑎.)
-10. Write a function that generates an ROC curve from a data set with a true classification column (class in our
+
+```{r ex8}
+f1_function <- function(x) {
+  p <- precision_function(x)
+  s <- sensitivity_function(x)
+  return(round((2 * p * s)/(p + s), 4))
+}
+
+f1_calc <- f1_function(data)
+f1_calc
+```
+
+The F1 score is 0.6068.
+
+### Exercise 9
+
+Before we move on, let’s consider a question that was asked: What are the bounds on the F1 score? Show that the F1 score will always be between 0 and 1. (Hint: If 0 < a < 1 and 0 < b < 1 then ab < a.)
+
+> So both `precision` and `sensitivity`, which are used to calculate the F1 score, are bounded between 0 and 1. Given the restriction on these two fields, the F1 score will also be between 0 and 1.
+
+### Exercise 10
+
+Write a function that generates an ROC curve from a data set with a true classification column (class in our
 example) and a probability column (scored.probability in our example). Your function should return a list
 that includes the plot of the ROC curve and a vector that contains the calculated area under the curve
 (AUC). Note that I recommend using a sequence of thresholds ranging from 0 to 1 at 0.01 intervals.
-11. Use your created R functions and the provided classification output data set to produce all of the
+
+```{r ex10}
+library(ggplot2)
+
+roc_function <- function(class, scored_prob) {
+  # sort the class and scored_prob in descending order of probabilities
+  order_idx <- order(scored_prob, decreasing = TRUE)
+  class <- class[order_idx]
+  scored_prob <- scored_prob[order_idx]
+
+  n <- length(class)
+
+  # initialize variables for ROC curve
+  TP <- 0
+  FP <- 0
+  TPR <- numeric(n)
+  FPR <- numeric(n)
+
+  # initialize AUC vector
+  auc_vector <- numeric(n)
+
+  # iterate through the data
+  for (i in 1:n) {
+    if (class[i] == 1) {
+      TP <- TP + 1
+    } else {
+      FP <- FP + 1
+    }
+
+    TPR[i] <- TP / sum(class == 1)
+    FPR[i] <- FP / sum(class == 0)
+
+    if (i > 1) {
+      auc_vector[i] <- 0.5 * (FPR[i] - FPR[i - 1]) * (TPR[i] + TPR[i - 1])
+    }
+  }
+
+  # plot the ROC curve
+  plot_roc <- ggplot(data.frame(FPR = FPR, TPR = TPR)) +
+    geom_line(aes(x = FPR, y = TPR)) +
+    xlab("False Positive Rate") + ylab("True Positive Rate") +
+    ggtitle("ROC Curve")
+
+  # return plot and auc as a vector
+  return(list(roc_plot = plot_roc, auc = auc_vector))
+}
+
+roc_data <- roc_function(df$class, df$scored.probability)
+roc_data$roc_plot
+
+auc_calc <- sum(roc_data$auc)
+auc_calc
+```
+
+The AUC is 0.8503. 
+
+### Exercise 11
+
+Use your created R functions and the provided classification output data set to produce all of the
 classification metrics discussed above.
-12. Investigate the caret package. In particular, consider the functions confusionMatrix, sensitivity, and
+
+```{r ex11}
+metrics <- c(accuracy_calc, classification_error_calc, f1_calc, precision_calc, sensitivity_calc, specificity_calc)
+names(metrics) <- c("Accuracy", "Error", "F1", "Precision", "Sensitivity", "Specificity")
+
+data.frame(metrics)
+```
+
+### Exercise 12
+
+Investigate the caret package. In particular, consider the functions confusionMatrix, sensitivity, and
 specificity. Apply the functions to the data set. How do the results compare with your own functions?
 13. Investigate the pROC package. Use it to generate an ROC curve for the data set. How do the results
 compare with your own functions?
+
+```{r ex12}
+library(caret)
+library(dplyr) 
+
+factors <- data |>
+  select(scored.class, class) |>
+  mutate(scored.class = as.factor(scored.class), 
+         class = as.factor(class))
+
+matrix <- confusionMatrix(factors$scored.class, factors$class, positive = "1")
+
+caret_package <- c(matrix$overall["Accuracy"]
+                   , matrix$byClass["Sensitivity"]
+                   , matrix$byClass["Specificity"]
+                   , matrix$byClass["Precision"]
+                   , matrix$byClass["F1"]
+                   )
+written_function <- c(accuracy_function(data)
+                      , sensitivity_function(data)
+                      , specificity_function(data)
+                      , precision_function(data)
+                      , f1_function(data)
+                      )
+comparison <- cbind(caret_package, written_function)
+data.frame(comparison)
+```
+
+The results are very close -- they only vary after 3-4 decimal points for most calculations so I would say they are comparable, it's just rounding that makes them slightly off.

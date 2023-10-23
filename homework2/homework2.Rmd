@@ -2,7 +2,9 @@
 title: "Homework 2"
 author: "Alice Ding"
 date: "2023-10-05"
-output: pdf_document
+output:
+  html_document:
+    df_print: paged
 ---
 
 ## Overview

@@ -1,0 +1,504 @@
+---
+title: "homework3"
+author: "Alice Ding"
+date: "2023-10-23"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r imports, echo=FALSE, message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(psych)
+library(cowplot)
+library(GGally)
+library(corrplot)
+library(RColorBrewer)
+library(MASS)
+library(caret)
+library(knitr)
+library(kableExtra)
+library(pROC)
+```
+
+## Overview
+
+In this homework assignment, you will explore, analyze and model a data set containing information on crime for various neighborhoods of a major city. Each record has a response variable indicating whether or not the crime rate is above the median crime rate (1) or not (0).
+
+Your objective is to build a binary logistic regression model on the training data set to predict whether the neighborhood will be at risk for high crime levels. You will provide classifications and probabilities for the evaluation data set using your binary logistic regression model. You can only use the variables given to you (or variables that you derive from the variables provided). Below is a short description of the variables of interest in the data set:
+
+- `zn`: proportion of residential land zoned for large lots (over 25000 square feet) (predictor variable)
+- `indus`: proportion of non-retail business acres per suburb (predictor variable)
+- `chas`: a dummy var. for whether the suburb borders the Charles River (1) or not (0) (predictor variable)
+- `nox`: nitrogen oxides concentration (parts per 10 million) (predictor variable)
+- `rm`: average number of rooms per dwelling (predictor variable)
+- `age`: proportion of owner-occupied units built prior to 1940 (predictor variable)
+- `dis`: weighted mean of distances to five Boston employment centers (predictor variable)
+- `rad`: index of accessibility to radial highways (predictor variable)
+- `tax`: full-value property-tax rate per $10,000 (predictor variable)
+- `ptratio`: pupil-teacher ratio by town (predictor variable)
+- `lstat`: lower status of the population (percent) (predictor variable)
+- `medv`: median value of owner-occupied homes in $1000s (predictor variable)
+- `target`: whether the crime rate is above the median crime rate (1) or not (0) (response variable)
+
+## Data Exploration
+
+First, we'll view the summary and then we'll check if there are data points missing. Then, we'll clean the fields up to make sure they're ready for analysis.
+
+```{r import}
+training <- read.csv('https://raw.githubusercontent.com/addsding/data621/main/homework3/crime-training-data_modified.csv')
+evaluation <- read.csv('https://raw.githubusercontent.com/addsding/data621/main/homework3/crime-evaluation-data_modified.csv')
+
+summary <- as.data.frame(describe(training))
+nulls <- 466 - summary['n']
+nulls_pct <- nulls / 446
+summary['nulls'] <- nulls
+summary['nulls_pct'] <- nulls_pct
+kable(summary, digits=2) |>
+  kable_styling(c("striped", "scale_down")) |>
+  scroll_box(width = "100%")
+```
+
+It looks like there are no nulls in the data to start which is good as this means there is no need to impute any nulls.
+
+It appears we also have a few highly skewed variables due to many medians being quite different from the means. Some examples include the variables `zn` and `tax`.
+
+### Class Bias Check
+
+Given we only have two target values, 0 and 1, we ideally want an equal representation of both. If class imbalance were to deviate, our model performance would suffer both from effects of differential variance between the classes and bias, thus picking the more represented class. For logistic regression, if we see a strong imbalance, we can:
+
+- up-sample the smaller group (e.g. bootstrapping),
+- down-sample the larger group (e.g. sampling or bootstrapping)
+- adjust our threshold for assigning the predicted value away from 0.5.
+
+Given our target variable though seems to be relatively balanced (average of 0.49, meaning it's very close to 50% 0 and 50% 1), no upsampling or downsampling will be required to achieve class balance with this dataset.
+
+### Distributions
+
+Let's see what all of these fields look like distribution wise.
+
+```{r distribution_hist, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+my_plots_hist <- lapply(names(training), function(var_x){
+  p <- 
+    ggplot(training) +
+    aes_string(var_x)
+  p <- p + geom_histogram()
+})
+
+plot_grid(plotlist = my_plots_hist)
+```
+
+At first glance, it looks like these fields are relatively normal or have a good curve:
+
+- `rm`
+- `medv`
+
+The rest either are pretty skewed in either direction or have no pattern really at all. Like we said in the previous section, `zn` and `tax` are skewed, however for the latter it actually looks like there's just a large amount of outliers while the beginning of the data (left side) is actually relatively normal in distribution interestingly enough.
+
+How do these look as boxplots?
+
+```{r distribution_box, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+my_plots_box <- lapply(names(training), function(var_x){
+  p <- 
+    ggplot(training) +
+    aes_string(var_x)
+    p <- p + geom_boxplot()
+})
+
+plot_grid(plotlist = my_plots_box)
+```
+
+In many of these fields, there seems to be quite a lot of outliers that may need to be imputed such as `zn`, `rm`, `dis`, `lstat`, and `medv`.
+
+Now that we have a sense of how the data is distributed, what do the relationships between the variables as well as with our target look like?
+
+Let's see how each of these fields correlates with `target` -- we'll start with the first six fields.
+
+```{r correlation_1, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+ggpairs(training[, c('target', 'zn', 'indus', 'chas', 'nox', 'rm', 'age')])
+```
+
+Interestingly, it seems that every field is significantly correlated except for `chas`. The ones with negative correlation are `zn` and `rm` while `indus`, `nox`, and `age` are positively correlated. 
+
+Implication wise, this seems to say that less residential space/rooms means more crime while more non-retail acres per suburb, older occupied buildings, and higher nitrogen oxide means more crime as well.
+
+These fields are also pretty correlated with one another for the most part which may serve as an issue for our model.
+
+What do the relationships look like for the rest of the fields?
+
+```{r correlation_2, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+ggpairs(training[, c('target', 'dis', 'rad', 'tax', 'ptratio', 'lstat', 'medv')])
+```
+
+All of these fields are correlated with our `target` -- `dis` and `medv` are the only ones with negative impact while the rest are positive. Additionally, they're all once again correlated with one another.
+
+Implication wise, this means that the closer the area to employment centers and lower value of homes means more crime while more access to highways, higher tax rates, higher teacher-student ratios, and more lower status population also indicate high crime.  
+
+To view a more concise correlation analysis overall:
+
+```{r correlation_3, echo=FALSE}
+correlation = cor(training, use = 'pairwise.complete.obs')
+
+corrplot(correlation, 'ellipse', type = 'lower', order = 'hclust',
+         col=brewer.pal(n=8, name="RdYlBu"))
+```
+
+Looking at this, we can see an extremely strong correlation between `rad` and `tax` as well as a slightly less but still strong correlation between `indus` and `nox`.
+
+Keeping this information in mind as we move closer to creating our model, we'll move to the next step of preparing our data.
+
+## Data Preparation
+
+### Removals
+
+To start, we will remove the `rad` field due to its strong correlation with `tax`. `rad` was chosen over `tax` because the latter visually looks a little more normal than the other and might be better suited for model use.
+
+```{r replace_nas, echo=FALSE}
+training <- subset(training, select = -c(rad))
+head(training)
+```
+
+### Outliers
+
+There are some pretty extreme outliers scattered throughout the `zn`, `rm`, `dis`, `lstat`, and `medv` fields (see the boxplot in the previous section). To account for these, we will use the median of the data again to replace these outliers if they are more than three standard deviations from the mean. This means replacing a total of 26 fields.
+
+```{r replace_outliers, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+# 13 records
+training$zn[training$zn > summary$mean[1] + summary$sd[1] * 3] <- median(training$zn, na.rm=TRUE)
+# 3 records
+training$rm[training$rm > summary$mean[5] + summary$sd[5] * 3] <- median(training$rm, na.rm=TRUE)
+# 5 records
+training$dis[training$dis > summary$mean[7] + summary$sd[7] * 3] <- median(training$dis, na.rm=TRUE)
+# 5 records
+training$lstat[training$lstat > summary$mean[11] + summary$sd[11] * 3] <- median(training$lstat, na.rm=TRUE)
+# 0 records
+training$medv[training$medv > summary$mean[12] + summary$sd[12] * 3] <- median(training$medv, na.rm=TRUE)
+
+my_plots_box <- lapply(names(training), function(var_x){
+  p <- 
+    ggplot(training) +
+    aes_string(var_x)
+    p <- p + geom_boxplot()
+})
+
+plot_grid(plotlist = my_plots_box)
+```
+
+While there are still some outliers, the boxplots look a lot cleaner; it should be noted that for `medv`, although we tried to impute outliers, it seems the max value 50 was just below the threshold so nothing in this field was actually changed.
+
+### Transform Non-Normal Variables
+
+The last alteration before modeling is ensuring that our variables are normal by transforming the ones that don't seem to have much of normal distribution. The fields with distributions that aren't normal are:
+
+- `zn`
+- `indus`
+- `nox`
+- `age`
+- `dis`
+- `ptratio`
+- `lstat`
+
+We'll try transforming these with `log` first and if that doesn't work, then we'll `sqrt` it.
+
+```{r transform_log, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+training$log_zn <- ifelse(training$zn == 0, training$zn, log(training$zn))
+training$log_indus <- ifelse(training$indus == 0, training$indus, log(training$indus))
+training$log_nox <- ifelse(training$nox == 0, training$nox, log(training$nox))
+training$log_age <- ifelse(training$age == 0, training$age, log(training$age))
+training$log_dis <- ifelse(training$dis == 0, training$dis, log(training$dis))
+training$log_ptratio <- ifelse(training$ptratio == 0, training$ptratio, log(training$ptratio))
+training$log_lstat <- ifelse(training$lstat == 0, training$lstat, log(training$lstat))
+
+my_plots_hist <- lapply(names(training[13:19]), function(var_x){
+  p <- 
+    ggplot(training[13:19]) +
+    aes_string(var_x)
+  p <- p + geom_histogram()
+})
+
+plot_grid(plotlist = my_plots_hist)
+```
+It looks like this fixed a few variables, however `zn`, `age`, and `ptratio` still aren't vern normalized. Let's trying using `sqrt` on them.
+
+```{r transform_sqrt, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+training$sqrt_zn <- sqrt(training$zn)
+training$sqrt_age <- sqrt(training$age)
+training$sqrt_ptratio <- sqrt(training$ptratio)
+
+my_plots_hist <- lapply(names(training[20:22]), function(var_x){
+  p <- 
+    ggplot(training[20:22]) +
+    aes_string(var_x)
+  p <- p + geom_histogram()
+})
+
+plot_grid(plotlist = my_plots_hist)
+```
+
+This also wasn't super helpful. Given not every piece of data can be normalized, we'll opt to keep these versions of the three above variables:
+
+- `zn` -> `log_zn`
+- `age` -> `log_age`
+- `ptratio` -> `sqrt_ptratio`
+
+## Build Models
+
+Before doing anything, we will split the data into training and test sets with a 70/30 split.
+
+```{r split, echo=FALSE, message=FALSE}
+set.seed(123)
+train_index <- createDataPartition(training$target, p = .7, times = 1, list = FALSE)
+train <- training[train_index,]
+test <- training[-train_index,]
+```
+
+We'll go through two sets of models:
+
+- Model 1: Start from using all the coefficients as is and only use the transformed ones if they don't seem to have a solid impact on the model
+- Model 2: Start with all normalized (to the best of our ability) variables and select from there
+
+### Model 1A
+
+This first model will use all the fields pre-transformed ones.
+
+```{r model1a, echo=FALSE}
+model1a <- glm(target ~ 
+               zn 
+             + indus 
+             + chas
+             + nox
+             + rm 
+             + age
+             + dis
+             + tax
+             + ptratio
+             + lstat
+             + medv
+             , data = train
+             , family = 'binomial')
+
+summary(model1a)
+```
+
+#### Coefficient Evaluation\
+
+Looking at the model's coefficients and whether they had a positive or negative impact, `zn`, `indus`, `rm`, and the intercept being negative imply that more residential space and more non-retail businesses would contribute less to crime while just everything at 0 would mean that a neighborhood would likely not have high crime. These all have a lower amount of impact than some of the other variables though as an observation.
+
+`nox` has a huge impact with `chas` also being pretty positive -- this would imply that high nitrogen oxide as well as bordering the Charles River is a good indicator for high crime.
+
+#### Significance Evaluation & Performance\
+
+`nox` and the intercept hold the strongest level of significance at 0, `dis`, `tax`, `ptratio`, and `medv` have slightly less significance at 0.001, and `indus` is the least level at 0.01. This leaves `zn`, `chas`, `rm`, `age,` and `lstat` -- we will opt to remove these five in the next iteration.
+
+With an AIC of 191.74 and residual deviance of 167.74, we'll use this as a baseline to compare to as we iterate on the model.
+
+### Model 1B
+
+```{r model1b, echo=FALSE}
+model1b <- glm(target ~ 
+             indus 
+             + nox
+             + dis
+             + tax
+             + ptratio
+             + medv
+             , data = train
+             , family = 'binomial')
+
+summary(model1b)
+```
+
+
+#### Coefficient Evaluation\
+
+Similar to Model 1A, `indus` is the only negative field meaning the higher it is, the less likely the area would contribute to crime. On the other side, `nox` still holds the most strength in impacting crime in a positive way, meaning the higher these values, the more likely there is to be a high level of crime.
+
+#### Significance Evaluation & Performance\
+
+`indus` is the least significant, however it's still at 0.01 so still pretty strong; the rest of the variables are more significant and that's a promising sign. The AIC has improved at 189.5 vs. 191.74 while the residual deviance went up at 175.50 vs. 167.74.
+
+### Model 2A
+
+This model will use all the fields, defaulting to the ones that are normalized/transformed.
+
+```{r model2a, echo=FALSE}
+model2a <- glm(target ~ 
+               log_zn 
+             + log_indus 
+             + chas
+             + log_nox
+             + rm 
+             + log_age
+             + log_dis
+             + tax
+             + sqrt_ptratio
+             + log_lstat
+             + medv
+             , data = train
+             , family = 'binomial')
+
+summary(model2a)
+```
+
+#### Coefficient Evaluation\
+
+Looking at the model's coefficients and whether they had a positive or negative impact, `zn`, `rm`, and the intercept are all negative, however unlike Model 1's iteration, `indus` (`log_indus` in this case) is positive interestingly enough. Its weight though is much less than Model 1's so perhaps it's more of a borderline variable than we thought previously.
+
+In terms of positive strength, `log_nox`, `log_dis`, and `sqrt_ptratio` are all quite high and contribute greatly to the likelihood that an area has high crime similar to Model 1, the additions here being that a longer distance from Boston's employment centers and a higher pupil-teacher ratio contribute to higher crime.
+
+#### Significance Evaluation & Performance\
+
+Only five variables made it past a level of significance: `log_nox`, `log_dis`, `tax`, and `medv` have the highest levels of significance at 0. while `sqrt_ptratio` follows at 0.001. Given the rest are a bit far from being significant, we'll opt to remove them from the next iteration.
+
+With an AIC of 189.42 and residual deviance of 165.42, we'll use this as a baseline to compare to as we iterate on the model.
+
+### Model 2B
+
+```{r model2b, echo=FALSE}
+model2b <- glm(target ~ 
+               log_nox
+             + log_dis
+             + tax
+             + sqrt_ptratio
+             + medv
+             , data = train
+             , family = 'binomial')
+
+summary(model2b)
+```
+
+#### Coefficient Evaluation\
+
+Looking at the model's coefficients and whether they had a positive or negative impact, the intercept is now the only negative impactor.
+
+In terms of positive strength, `log_nox`, `log_dis`, and `sqrt_ptratio` are still quite high and contribute greatly to the likelihood that an area has high crime with `tax` having a very low value.
+
+#### Significance Evaluation & Performance\
+
+All variables are statistically significant now minus the intercept, however there's little we can do about that. `sqrt_ptratio` is slightly less significant than the other variables, but at that strength, it's negligible. 
+
+Comparing performance, AIC improved going from 189.42 to 183.33, but residual deviance increased from 165.42 to 171.33, we'll use this as a baseline to compare to as we iterate on the model.
+
+## Select Models
+
+### Confusion Matrices
+
+First, we'll take a look at confusion matrices for each of the models.
+
+```{r confusion_matrix_1a}
+# if the prediction is >= 0.5, then we would predict 1 for that row, otherwise 0
+test$model1a <- ifelse(predict.glm(model1a, test, "response") >= 0.5, 1, 0)
+
+# create the confusion matrix
+cm1a <- confusionMatrix(factor(test$model1a), factor(test$target), "1")
+results <- tibble(Model = "Model #1", Accuracy=cm1a$byClass[11], F1 = cm1a$byClass[7],
+                  Deviance= model1a$deviance, 
+                  R2 = 1 - model1a$deviance / model1a$null.deviance,
+                  AIC= model1a$aic)
+cm1a
+```
+
+```{r confusion_matrix_1b}
+# if the prediction is >= 0.5, then we would predict 1 for that row, otherwise 0
+test$model1b <- ifelse(predict.glm(model1b, test, "response") >= 0.5, 1, 0)
+
+# create the confusion matrix
+cm1b <- confusionMatrix(factor(test$model1b), factor(test$target), "1")
+results <- tibble(Model = "Model #1", Accuracy=cm1b$byClass[11], F1 = cm1b$byClass[7],
+                  Deviance= model1b$deviance, 
+                  R2 = 1 - model1b$deviance / model1b$null.deviance,
+                  AIC= model1b$aic)
+cm1b
+```
+
+```{r confusion_matrix_2a}
+# if the prediction is >= 0.5, then we would predict 1 for that row, otherwise 0
+test$model2a <- ifelse(predict.glm(model2a, test, "response") >= 0.5, 1, 0)
+
+# create the confusion matrix
+cm2a <- confusionMatrix(factor(test$model2a), factor(test$target), "1")
+results <- tibble(Model = "Model #1", Accuracy=cm2a$byClass[11], F1 = cm2a$byClass[7],
+                  Deviance= model2a$deviance, 
+                  R2 = 1 - model2a$deviance / model2a$null.deviance,
+                  AIC= model2a$aic)
+cm2a
+```
+
+```{r confusion_matrix_2b}
+# if the prediction is >= 0.5, then we would predict 1 for that row, otherwise 0
+test$model2b <- ifelse(predict.glm(model2b, test, "response") >= 0.5, 1, 0)
+
+# create the confusion matrix
+cm2b <- confusionMatrix(factor(test$model2b), factor(test$target), "1")
+results <- tibble(Model = "Model #1", Accuracy=cm2b$byClass[11], F1 = cm2b$byClass[7],
+                  Deviance= model2b$deviance, 
+                  R2 = 1 - model2b$deviance / model2b$null.deviance,
+                  AIC= model2b$aic)
+cm2b
+```
+
+### ROC
+
+Now with all of these matrices, we'll look at ROC curves.
+
+```{r roc}
+print('Model 1A ROC Curve')
+roc(test[["target"]], test[["model1a"]], plot = TRUE, legacy.axes = TRUE, print.auc = TRUE)
+
+print('Model 1B ROC Curve')
+roc(test[["target"]], test[["model1b"]], plot = TRUE, legacy.axes = TRUE, print.auc = TRUE)
+
+print('Model 2A ROC Curve')
+roc(test[["target"]], test[["model2a"]], plot = TRUE, legacy.axes = TRUE, print.auc = TRUE)
+
+print('Model 2B ROC Curve')
+roc(test[["target"]], test[["model2b"]], plot = TRUE, legacy.axes = TRUE, print.auc = TRUE)
+```
+
+
+### Overall Comparisons
+
+```{r comparing, echo=FALSE}
+# function to pull out performance statistics
+model_perf <- function(model, model_summary, confusion_matrix) {
+  data.frame("Residual Deviance" = model$deviance,
+             "AIC" = model$aic,
+             "Accuracy" = confusion_matrix$byClass[11],
+             "F1" = confusion_matrix$byClass[7],
+             "R2" = 1 - model_summary$deviance / model_summary$null.deviance
+  )
+}
+
+summary_table <- bind_rows(
+  model_perf(model1a, summary(model1a), cm1a),
+  model_perf(model1b, summary(model1b), cm1b),
+  model_perf(model2a, summary(model2a), cm2a),
+  model_perf(model2b, summary(model2b), cm2b),
+) 
+
+rownames(summary_table) <- c("Model 1A", "Model 1B", "Model 2A", "Model 2B")
+
+summary_table
+```
+
+Based on the above output:
+
+- Residual Deviance: Model 2A had the lowest Residual Deviance with Model 1A close behind
+- AIC: Model 2B had the best AIC
+- Accuracy: Model 1A had the best Accuracy
+- F1: Model 1A had the best F1 statistic
+- R^2: Model 2A had the highest R^2 with Model 1A close behind
+
+### Conclusion
+
+Overall, it seems like Model 2A performed the best with good Residual Deviance and R^2, decent Accuracy, AIC, and F1 statistic. While the model isn't perfect or better by a huge margin when compared against the other models, it seems like the most well-rounded one. This makes sense to us as it utilizes our modified/more normalized variables and doesn't remove a majority of variables like Model 2B. 

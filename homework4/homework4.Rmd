@@ -2,7 +2,9 @@
 title: "homework4"
 author: "Alice Ding"
 date: "2023-11-28"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 ```{r imports, echo=FALSE, message=FALSE}
 library(dplyr)
@@ -25,47 +27,1105 @@ In this homework assignment, you will explore, analyze and model a data set cont
 
 Your objective is to build multiple linear regression and binary logistic regression models on the training data to predict the probability that a person will crash their car and also the amount of money it will cost if the person does crash their car. You can only use the variables given to you (or variables that you derive from the variables provided). Below is a short description of the variables of interest in the data set:
 
-- `INDEX`: Identification Variable (do not use) None
-- `TARGET_FLAG`: Was Car in a crash? 1=YES 0=NO None
-- `TARGET_AMT`: If car was in a crash, what was the cost None
-- `AGE`: Age of Driver Very young people tend to be risky. Maybe very old people also.
-- `BLUEBOOK`: Value of Vehicle Unknown effect on probability of collision, but probably effect the payout if there is a crash
-- `CAR_AGE`: Vehicle Age Unknown effect on probability of collision, but probably effect the payout if there is a crash
-- `CAR_TYPE`: Type of Car Unknown effect on probability of collision, but probably effect the payout if there is a crash
-- `CAR_USE`: Vehicle Use Commercial vehicles are driven more, so might increase probability of collision
-- `CLM_FREQ`: # Claims (Past 5 Years) The more claims you filed in the past, the more you are likely to file in the future
-- `EDUCATION`: Max Education Level Unknown effect, but in theory more educated people tend to drive more safely
-- `HOMEKIDS`: # Children at Home Unknown effect
-- `HOME_VAL`: Home Value In theory, home owners tend to drive more responsibly
-- `INCOME`: Income In theory, rich people tend to get into fewer crashes
-- `JOB`: Job Category In theory, white collar jobs tend to be safer
-- `KIDSDRIV`: # Driving Children When teenagers drive your car, you are more likely to get into crashes
-- `MSTATUS`: Marital Status In theory, married people drive more safely
-- `MVR_PTS`: Motor Vehicle Record Points If you get lots of traffic tickets, you tend to get into more crashes
-- `OLDCLAIM`: Total Claims (Past 5 Years) If your total payout over the past five years was high, this suggests future payouts will be high
-- `PARENT1`: Single Parent Unknown effect
-- `RED_CAR`: A Red Car Urban legend says that red cars (especially red sports cars) are more risky. Is that true?
-- `REVOKED`: License Revoked (Past 7 Years) If your license was revoked in the past 7 years, you probably are a more risky driver.
-- `SEX`: Gender Urban legend says that women have less crashes then men. Is that true?
-- `TIF`: Time in Force People who have been customers for a long time are usually more safe.
-- `TRAVTIME`: Distance to Work Long drives to work usually suggest greater risk
-- `URBANICITY`: Home/Work Area Unknown
-- `YOJ`: Years on Job People who stay at a job for a long time are usually more safe
+- `INDEX`: Identification Variable (do not use) 
+- `TARGET_FLAG`: Was Car in a crash? 1=YES 0=NO
+- `TARGET_AMT`: If car was in a crash, what was the cost
+- `AGE`: Age of Driver // Very young people tend to be risky. Maybe very old people also.
+- `BLUEBOOK`: Value of Vehicle // Unknown effect on probability of collision, but probably effect the payout if there is a crash
+- `CAR_AGE`: Vehicle Age // Unknown effect on probability of collision, but probably effect the payout if there is a crash
+- `CAR_TYPE`: Type of Car // Unknown effect on probability of collision, but probably effect the payout if there is a crash
+- `CAR_USE`: Vehicle Use // Commercial vehicles are driven more, so might increase probability of collision
+- `CLM_FREQ`: # Claims (Past 5 Years) // The more claims you filed in the past, the more you are likely to file in the future
+- `EDUCATION`: Max Education Level // Unknown effect, but in theory more educated people tend to drive more safely
+- `HOMEKIDS`: # Children at Home // Unknown effect
+- `HOME_VAL`: Home Value // In theory, home owners tend to drive more responsibly
+- `INCOME`: Income // In theory, rich people tend to get into fewer crashes
+- `JOB`: Job Category // In theory, white collar jobs tend to be safer
+- `KIDSDRIV`: # Driving Children // When teenagers drive your car, you are more likely to get into crashes
+- `MSTATUS`: Marital Status // In theory, married people drive more safely
+- `MVR_PTS`: Motor Vehicle Record Points // If you get lots of traffic tickets, you tend to get into more crashes
+- `OLDCLAIM`: Total Claims (Past 5 Years) // If your total payout over the past five years was high, this suggests future payouts will be high
+- `PARENT1`: Single Parent // Unknown effect
+- `RED_CAR`: A Red Car // Urban legend says that red cars (especially red sports cars) are more risky. Is that true?
+- `REVOKED`: License Revoked (Past 7 Years) // If your license was revoked in the past 7 years, you probably are a more risky driver.
+- `SEX`: Gender // Urban legend says that women have less crashes then men. Is that true?
+- `TIF`: Time in Force // People who have been customers for a long time are usually more safe.
+- `TRAVTIME`: Distance to Work // Long drives to work usually suggest greater risk
+- `URBANICITY`: Home/Work Area // Unknown
+- `YOJ`: Years on Job // People who stay at a job for a long time are usually more safe
 
 ## Data Exploration
 
 First, we'll view the summary and then we'll check if there are data points missing. Then, we'll clean the fields up to make sure they're ready for analysis.
 
 ```{r import}
-training <- read.csv('https://raw.githubusercontent.com/addsding/data621/main/homework3/crime-training-data_modified.csv')
-evaluation <- read.csv('https://raw.githubusercontent.com/addsding/data621/main/homework3/crime-evaluation-data_modified.csv')
+training <- read.csv('https://raw.githubusercontent.com/addsding/data621/main/homework4/insurance_training_data.csv')
+evaluation <- read.csv('https://raw.githubusercontent.com/addsding/data621/main/homework4/insurance-evaluation-data.csv')
 
 summary <- as.data.frame(describe(training))
-nulls <- 466 - summary['n']
-nulls_pct <- nulls / 446
+nulls <- 8161 - summary['n']
+nulls_pct <- nulls / 8161
 summary['nulls'] <- nulls
 summary['nulls_pct'] <- nulls_pct
 kable(summary, digits=2) |>
   kable_styling(c("striped", "scale_down")) |>
   scroll_box(width = "100%")
 ```
+
+The data has 26 variables with 8161 observations
+
+It looks like the only fields with nulls are `YOJ`, `AGE`, and `CAR_AGE` so good to know there won't be much cleaning there. 
+
+It appears we also have a few highly skewed variables due to many medians being quite different from the means. Some examples include the variables `OLDCLAIM` and potentially `HOME_VAL`.
+
+What types of fields are each of our variables?
+
+```{r summary}
+summary(training)
+```
+It looks like we have 12 continuous variables and the rest are characters. We however see that certain fields should be numerical, however they're formatted in a way that makes them characters. These fields are:
+
+- `INCOME`
+- `HOME_VAL`
+- `BLUEBOOK`
+- `OLDCLAIM`
+
+We can clean these up next.
+
+### Data Cleaning
+
+#### Formatting\
+
+It looks as though a few of these numerical values have $ and commas, signalling they would be difficult to interpret when charting or trying to visualize them. Let's try to address these fields and fix them.
+
+```{r formatting}
+clean <- function(x){
+  x <- as.character(x)
+  x <- gsub(",", "", x)
+  x <- gsub("\\$", "", x)
+  as.numeric(x)
+}
+
+training$INCOME_CLEAN <- clean(training$INCOME)
+training$HOME_VAL_CLEAN <- clean(training$HOME_VAL)
+training$BLUEBOOK_CLEAN <- clean(training$BLUEBOOK)
+training$OLDCLAIM_CLEAN <- clean(training$OLDCLAIM)
+
+summary(training)
+```
+
+#### Data Types\
+
+It seems as though a few fields should be identified as factors rather than characters -- these include:
+
+- `TARGET_FLAG`
+- `CAR_USE`
+- `CAR_TYPE`
+- `EDUCATION`
+- `JOB`
+- `MSTATUS`
+- `RED_CAR`
+- `PARENT1`
+- `REVOKED`
+- `SEX`
+- `URBANICITY`
+
+```{r data_types}
+training$TARGET_FLAG <- as.factor(training$TARGET_FLAG)
+training$CAR_USE <- as.factor(training$CAR_USE)
+training$CAR_TYPE <- as.factor(training$CAR_TYPE)
+training$JOB <- as.factor(training$JOB)
+training$MSTATUS <- as.factor(training$MSTATUS)
+training$RED_CAR <- as.factor(training$RED_CAR)
+training$PARENT1 <- as.factor(training$PARENT1)
+training$REVOKED <- as.factor(training$REVOKED)
+training$SEX <- as.factor(training$SEX)
+training$URBANICITY <- as.factor(training$URBANICITY)
+summary(training)
+summary <- as.data.frame(describe(training))
+nulls <- 8161 - summary['n']
+nulls_pct <- nulls / 8161
+summary['nulls'] <- nulls
+summary['nulls_pct'] <- nulls_pct
+kable(summary, digits=2) |>
+  kable_styling(c("striped", "scale_down")) |>
+  scroll_box(width = "100%")
+```
+
+### Class Bias Check
+
+For our binary logistic regression model, we only have two target values: 0 and 1. We ideally want an equal representation of both as if imbalance were to deviate, our model performance would suffer both from effects of differential variance between the classes and bias, thus picking the more represented class. For logistic regression, if we see a strong imbalance, we can:
+
+- up-sample the smaller group (e.g. bootstrapping),
+- down-sample the larger group (e.g. sampling or bootstrapping)
+- adjust our threshold for assigning the predicted value away from 0.5.
+
+What is the exact distribution of `TARGET_FLAG`?
+
+```{r target_class_distr}
+table(training$TARGET_FLAG)
+```
+
+This unfortunately does not look like an even split as 0 is represented more heavily here and thus this would affect our model. To help alleviate this bias, we'll be up-sampling the smaller group.
+
+```{r up_sample}
+set.seed(123)
+training_fixed <- upSample(x=training[, -ncol(training)],
+                     y=as.factor(training$TARGET_FLAG))
+table(training_fixed$TARGET_FLAG)
+```
+
+Perfect 50/50 split!
+
+### Distributions
+
+#### Numerical Fields\
+
+Let's see what all of the numerical fields look like distribution wise.
+
+```{r distribution_hist, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+numerical_training <- subset(training, select=c(TARGET_AMT, AGE, BLUEBOOK_CLEAN, CAR_AGE, CLM_FREQ, HOMEKIDS, HOME_VAL_CLEAN, INCOME_CLEAN, KIDSDRIV, MVR_PTS, OLDCLAIM_CLEAN, TIF, TRAVTIME, YOJ))
+
+my_plots_hist <- lapply(names(numerical_training), function(var_x) {
+  p <-
+    ggplot(numerical_training) +
+    aes_string(var_x) + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1))
+  p <- p + geom_histogram(stat="count")
+})
+
+plot_grid(plotlist = my_plots_hist)
+```
+
+At first glance, it looks like these fields are relatively normal or have a good curve:
+
+- `AGE`
+- `CAR_AGE`
+- `TRAVTIME`
+- `YOJ`
+
+The rest either are pretty skewed in either direction or have no pattern really at all.
+
+How do these look as boxplots?
+
+```{r distribution_box, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+my_plots_box <- lapply(names(numerical_training), function(var_x){
+  p <- 
+    ggplot(numerical_training) +
+    aes_string(var_x) + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1))
+    p <- p + geom_boxplot()
+})
+
+plot_grid(plotlist = my_plots_box)
+```
+
+In most of these fields, it looks like there are quite a few outliers except in `CAR_AGE` and `CLM_FREQ`.
+
+#### Categorical Fields\
+
+```{r categorical_dist, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+categorical_hist <- subset(training, select=c(CAR_TYPE, CAR_USE, EDUCATION, JOB, MSTATUS, PARENT1, RED_CAR, REVOKED, SEX, URBANICITY))
+
+my_plots_bar <- lapply(names(categorical_hist), function(var_x) {
+  p <-
+    ggplot(categorical_hist) +
+    aes_string(var_x) + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1))
+  p <- p + geom_bar(stat="count")
+})
+
+plot_grid(plotlist = my_plots_bar)
+```
+
+It looks like some of these fields are more heavily skewed towards one category vs. the others, in particular `PARENT1` and `REVOKED`.
+
+Now that we have a sense of how the data is distributed, what do the relationships between the variables as well as with our target look like?
+
+### Correlations
+
+#### Target Flag\
+
+Let's see how each of the numerical fields correlate with `TARGET_FLAG` -- we'll start with the first six fields.
+
+```{r correlation_1, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+ggpairs(training[, c('TARGET_FLAG', 'AGE', 'BLUEBOOK_CLEAN', 'CAR_AGE', 'CLM_FREQ', 'HOMEKIDS', 'HOME_VAL_CLEAN')])
+```
+
+Interestingly, it seems that every field is significantly correlated except for `CAR_AGE`. The one with negative correlation is `HOMEKIDS` while `AGE`, `BLUEBOOK_CLEAN`, and `CLM_FREQ` are positively correlated. 
+
+Implication wise:
+
+- `CAR_AGE` - not correlated - makes sense as this was theoretically known to have an unknown effect and moreso would be used for the `TARGET_AMT` field
+- `HOMEKIDS` - negative effect - if you have kids, you could be more likely to be a responsible driver
+- `AGE` - positive effect - could make sense as older people are theoretically more likely to be risky
+- `BLUEBOOK_CLEAN` - positive effect - this is interesting as this seemed to be unknown
+- `CLM_FREQ` - positive effect - the fact that they've had claims previously is maybe indicative of future accidents
+
+These fields are also pretty correlated with one another for the most part which may serve as an issue for our model.
+
+What do the relationships look like for the rest of the fields?
+
+```{r correlation_2, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+ggpairs(training[, c('TARGET_FLAG', 'INCOME_CLEAN', 'KIDSDRIV', 'MVR_PTS', 'OLDCLAIM_CLEAN', 'TIF', 'TRAVTIME', 'YOJ')])
+```
+
+Interestingly, it seems that every field is significantly correlated except for `TIF` and `URBANICITY`. The ones with negative correlation are `INCOME_CLEAN` and `OLDCLAIM_CLEAN` while `KIDSDRIV`, and `MVR_PTS` are positively correlated. 
+
+Implication wise:
+
+- `TIF` - not correlated - interesting how this is not correlated as there was a theory that this would indicate people are safer the longer they've been customers
+- `URBANICITY` - not correlated - there was no expectation for this to be correlated so this is not surprising
+- `INCOME_CLEAN` - negative effect - this makes sense as in theory, those with a higher income tend to get in fewer crashes
+- `OLDCLAIM_CLEAN` - negative effect - there was no expectation for this to be correlated, so it's interesting how it's super significant
+- `KIDSDRIV` - positive effect - this makes sense as a positive impact given teenagers/younger people are more likely to be in a crash
+- `MVR_PTS` - positive effect - this makes sense as a positive impact given the more crashes you have, the more wreckless you are
+- `CLM_FREQ` - positive effect - there was no expectation for this to be correlated so this is not surprising
+
+There are some correlated fields here, but let's see if they're also correlated with each other beyond just the seven displayed here.
+
+```{r correlation_3, echo=FALSE}
+correlation = cor(numerical_training, use = 'pairwise.complete.obs')
+
+corrplot(correlation, 'ellipse', type = 'lower', order = 'hclust',
+         col=brewer.pal(n=8, name="RdYlBu"))
+```
+
+Given none of these are extremely correlated, we probably won't have to remove fields in the preparation phase!
+
+## Data Preparation
+
+### Outliers & Nulls
+
+There are some pretty extreme outliers and some nulls scattered throughout various numerical fields (see the boxplot in the previous section). To account for these, we will use the median of the data again to replace these outliers if they are more than four standard deviations from the mean or if they're null.
+
+What we decided to do with each field:
+
+- `AGE`: Not replacing outliers as age is not something we should change
+- `BLUEBOOK_CLEAN`: Replacing 8 outliers with the median
+- `CAR_AGE`: Imputing 510 nulls with the median
+- `CLM_FREQ`: No outliers
+- `HOMEKIDS`: No outliers
+- `HOME_VAL_CLEAN`: Imputing 468 total fields with the median, 464 nulls and 4 outliers 
+- `INCOME_CLEAN`: Imputing 445 nulls with the median
+- `KIDSDRIV`: Not replacing outliers as they're only values 3-4
+- `MVR_PTS`: Replacing 13 outliers with the median
+- `OLDCLAIM_CLEAN`: Replacing 144 outliers with the median
+- `TIF`: Replacing 5 outliers with the median
+- `TRAVTIME`: Replacing 7 outliers with the median
+- `YOJ`: Imputing 454 nulls with the median
+
+```{r replace_outliers, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+# 8 records
+training$BLUEBOOK_CLEAN[training$BLUEBOOK_CLEAN > summary$mean[29] + summary$sd[29] * 4] <- median(training$BLUEBOOK_CLEAN, na.rm=TRUE)
+# 510 records, all null
+training$CAR_AGE[is.na(training$CAR_AGE)] <- median(training$CAR_AGE, na.rm=TRUE)
+# 468 records, 4 non-null
+training$HOME_VAL_CLEAN[training$HOME_VAL_CLEAN > summary$mean[28] + summary$sd[28] * 4] <- median(training$HOME_VAL_CLEAN, na.rm=TRUE)
+training$HOME_VAL_CLEAN[is.na(training$HOME_VAL_CLEAN)] <- median(training$HOME_VAL_CLEAN, na.rm=TRUE)
+# 445 records, all null
+training$INCOME_CLEAN[is.na(training$INCOME_CLEAN)] <- median(training$INCOME_CLEAN, na.rm=TRUE)
+# 13 records
+training$MVR_PTS[training$MVR_PTS > summary$mean[24] + summary$sd[24] * 4] <- median(training$MVR_PTS, na.rm=TRUE)
+# 144 records
+training$OLDCLAIM_CLEAN[training$OLDCLAIM_CLEAN > summary$mean[30] + summary$sd[30] * 4] <- median(training$OLDCLAIM_CLEAN, na.rm=TRUE)
+# 5 records
+training$TIF[training$TIF > summary$mean[18] + summary$sd[18] * 4] <- median(training$TIF, na.rm=TRUE)
+# 7 records
+training$TRAVTIME[training$TRAVTIME > summary$mean[15] + summary$sd[15] * 4] <- median(training$TRAVTIME, na.rm=TRUE)
+# 454 records
+training$YOJ[is.na(training$YOJ)] <- median(training$YOJ, na.rm=TRUE)
+
+numerical_training <- subset(training, select=c(TARGET_AMT, AGE, BLUEBOOK_CLEAN, CAR_AGE, CLM_FREQ, HOMEKIDS, HOME_VAL_CLEAN, INCOME_CLEAN, KIDSDRIV, MVR_PTS, OLDCLAIM_CLEAN, TIF, TRAVTIME, YOJ))
+
+my_plots_box <- lapply(names(numerical_training), function(var_x){
+  p <- 
+    ggplot(numerical_training) +
+    aes_string(var_x)
+    p <- p + geom_boxplot()
+})
+
+plot_grid(plotlist = my_plots_box)
+```
+When comparing these boxplots to the original, it's definitely looking a bit cleaner and with less outliers than before!
+
+### Transform Non-Normal Variables
+
+The last alteration before modeling is ensuring that our variables are normal by transforming the ones that don't seem to have much of normal distribution. The fields with distributions that aren't normal are:
+
+- `INCOME_CLEAN`
+- `KIDSDRIV`
+- `MVR_PTS`
+- `TIF`
+- `OLDCLAIM_CLEAN`
+
+We'll try transforming these with `log` first and if that doesn't work, then we'll `sqrt` it.
+
+```{r transform_log, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+training$log_INCOME_CLEAN <- ifelse(training$INCOME_CLEAN == 0, training$INCOME_CLEAN, log(training$INCOME_CLEAN))
+training$log_KIDSDRIV <- ifelse(training$KIDSDRIV == 0, training$KIDSDRIV, log(training$KIDSDRIV))
+training$log_MVR_PTS <- ifelse(training$MVR_PTS == 0, training$MVR_PTS, log(training$MVR_PTS))
+training$log_TIF <- ifelse(training$TIF == 0, training$TIF, log(training$TIF))
+training$log_OLDCLAIM_CLEAN <- ifelse(training$OLDCLAIM_CLEAN == 0, training$OLDCLAIM_CLEAN, log(training$OLDCLAIM_CLEAN))
+
+my_plots_hist <- lapply(names(training[31:35]), function(var_x){
+  p <- 
+    ggplot(training[31:35]) +
+    aes_string(var_x)
+  p <- p + geom_histogram()
+})
+
+plot_grid(plotlist = my_plots_hist)
+```
+
+The two clean fields (`INCOME_CLEAN` and `OLDCLAIM_CLEAN`) look a bit more normal, but the other three are still not as well-distributed. Let's try `sqrt`.
+
+```{r transform_sqrt, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+training$sqrt_KIDSDRIV <- sqrt(training$KIDSDRIV)
+training$sqrt_MVR_PTS <- sqrt(training$MVR_PTS)
+training$sqrt_TIF <- sqrt(training$TIF)
+
+my_plots_hist <- lapply(names(training[36:38]), function(var_x){
+  p <- 
+    ggplot(training[36:38]) +
+    aes_string(var_x)
+  p <- p + geom_histogram()
+})
+
+plot_grid(plotlist = my_plots_hist)
+```
+
+`TIF` looks a little better here so we'll opt to use this version of the field. The rest of the transformations don't seem to be super helpful.
+
+Given not every piece of data can be normalized, we'll opt to use these versions of the three above variables:
+
+- `INCOME_CLEAN` -> `log_INCOME_CLEAN`
+- `OLDCLAIM_CLEAN` -> `log_OLDCLAIM_CLEAN`
+- `TIF` -> `sqrt_TIF`
+
+## Build Models
+
+Before doing anything, we will split the data into training and test sets with a 70/30 split.
+
+```{r split, echo=FALSE, message=FALSE}
+set.seed(123)
+train_index <- createDataPartition(training$TARGET_AMT, p = .7, times = 1, list = FALSE)
+train <- training[train_index,]
+test <- training[-train_index,]
+```
+
+We'll go through two sets of models:
+
+- Model 1: Start from using all the coefficients as is and only use the transformed ones if they don't seem to have a solid impact on the model
+- Model 2: Start with all normalized (to the best of our ability) variables and select from there
+
+Let's begin with the binary models.
+
+### Binary Models
+
+#### Model 1A\
+
+This first model will use all the fields pre-transformed ones.
+
+```{r model1a_binary, echo=FALSE}
+model1a_binary <- glm(TARGET_FLAG ~ 
+               AGE 
+             + BLUEBOOK_CLEAN 
+             + CAR_AGE
+             + CAR_TYPE
+             + CAR_USE 
+             + CLM_FREQ
+             + EDUCATION
+             + HOMEKIDS
+             + HOME_VAL_CLEAN
+             + INCOME_CLEAN
+             + JOB
+             + KIDSDRIV
+             + MSTATUS
+             + MVR_PTS
+             + OLDCLAIM_CLEAN
+             + PARENT1
+             + RED_CAR
+             + REVOKED
+             + SEX
+             + TIF 
+             + TRAVTIME
+             + URBANICITY
+             + YOJ
+             , data = train
+             , family = 'binomial')
+
+summary(model1a_binary)
+```
+##### Coefficient Evaluation\
+
+Looking at the model's coefficients, these had negative values:
+
+- `AGE`
+- `BLUEBOOK_CLEAN`
+- `CAR_AGE`
+- `CAR_USEPrivate`
+- All `EDUCATION` values except for High School
+- `HOME_VAL_CLEAN`
+- `INCOME_CLEAN`
+- `JOBDoctor`
+- `JOBManager`
+- `OLDCLAIM_CLEAN`
+- `RED_CARyes`
+- `SEXz_F`
+- `URBANICITYz_Higlhly Rural/ Rural`
+- `YOJ` 
+- Intercept
+
+These negative coefficients imply that the higher these values (or the presence of them for the categorical values), the less likely these people will get in a crash. For example, just using some of the variables, we can interpret here that older people with more education and certain professions (Doctor/Manager) as well as higher home value and income are less likely to get in a crash.
+
+For the positive values:
+
+- All `CAR_TYPE` values
+- `CLM_FREQ`
+- `EDUCATIONz_High School`
+- `HOMEKIDS`
+- `JOBClerical`
+- `JOBHome Maker`
+- `JOBLawyer`
+- `JOBProfessional`
+- `JOBStudent`
+- `JOBz_Blue Collar`
+- `KIDSDRIV`
+- `MSTATUSz_NO`
+- `MVR_PTS`
+- `REVOKEDYes`
+- `TRAVTIME`
+
+This would imply that for these fields, if they are higher in value or are present for the categorical ones, this would mean that they're more likely to crash their car. For example, just using some of the variables, blue collar workers with kids who drive and have had their license revoked are more likely to get in a crash than those who don't have these variables.
+
+##### Significance Evaluation & Performance\
+
+A good amount of these variables were significant -- we'll opt to discard those that aren't significant though. That includes:
+
+- `AGE`
+- `CAR_AGE`
+- `HOMEKIDS`
+- `OLDCLAIM_CLEAN`
+- `RED_CAR`
+- `SEX`
+- `YOJ`
+
+With an AIC of 5134.9 and residual deviance of 5058.9, we'll use this as a baseline to compare to as we iterate on the model.
+
+```{r model1b_binary, echo=FALSE}
+model1b_binary <- glm(TARGET_FLAG ~ 
+               BLUEBOOK_CLEAN 
+             + CAR_TYPE
+             + CAR_USE 
+             + CLM_FREQ
+             + EDUCATION
+             + HOME_VAL_CLEAN
+             + INCOME_CLEAN
+             + JOB
+             + KIDSDRIV
+             + MSTATUS
+             + MVR_PTS
+             + PARENT1
+             + REVOKED
+             + TIF 
+             + TRAVTIME
+             + URBANICITY
+             , data = train
+             , family = 'binomial')
+
+summary(model1b_binary)
+```
+
+##### Coefficient Evaluation\
+
+In comparison with binary Model 1A, not much has changed here -- all variables that were negative stayed negative and vice versa for positive. A bit of the magnitude has adjusted for some of the fields, but overall, there wasn't too much change between this and the previous model.
+
+##### Significance Evaluation & Performance\
+
+Some variables increased in significance which is good to see. 
+
+Fortunately, our AIC and residual deviance both decreased, signalling this model is a better fit than the first iteration. 
+
+#### Model 2A\
+
+This model will use all the fields, defaulting to the ones that are normalized/transformed.
+
+```{r model2a_binary, echo=FALSE}
+model2a_binary <- glm(TARGET_FLAG ~ 
+               AGE 
+             + BLUEBOOK_CLEAN 
+             + CAR_AGE
+             + CAR_TYPE
+             + CAR_USE 
+             + CLM_FREQ
+             + EDUCATION
+             + HOMEKIDS
+             + HOME_VAL_CLEAN
+             + log_INCOME_CLEAN
+             + JOB
+             + KIDSDRIV
+             + MSTATUS
+             + MVR_PTS
+             + log_OLDCLAIM_CLEAN
+             + PARENT1
+             + RED_CAR
+             + REVOKED
+             + SEX
+             + sqrt_TIF 
+             + TRAVTIME
+             + URBANICITY
+             + YOJ
+             , data = train
+             , family = 'binomial')
+
+summary(model2a_binary)
+```
+
+Looking at the model's coefficients, these had negative values:
+
+- `AGE`
+- `BLUEBOOK_CLEAN`
+- `CAR_AGE`
+- `CAR_USEPrivate`
+- All `EDUCATION` values except for High School
+- `HOME_VAL_CLEAN`
+- `log_INCOME_CLEAN`
+- `JOBDoctor`
+- `JOBManager`
+- `JOBStudent`
+- `OLDCLAIM_CLEAN`
+- `RED_CARyes`
+- `SEXz_F`
+- `sqrt_TIF`
+- `URBANICITYz_Higlhly Rural/ Rural`
+- Intercept
+
+For the positive values:
+
+- All `CAR_TYPE` values
+- `CLM_FREQ`
+- `EDUCATIONz_High School`
+- `HOMEKIDS`
+- `JOBClerical`
+- `JOBHome Maker`
+- `JOBLawyer`
+- `JOBProfessional`
+- `JOBz_Blue Collar`
+- `KIDSDRIV`
+- `MSTATUSz_NO`
+- `MVR_PTS`
+- `REVOKEDYes`
+- `TRAVTIME`
+
+Compared to Model 1, a few of these variables have switched from positive to negative or vice versa (specifically `JOBStudent` and `OLDCLAIM_CLEAN`). A person being a student theoretically should be a positive thing if we base it off of age, but then again, it could also depend on what type of student they are. For `OLDCLAIM`, this isn't a field we would expect to have a particular effect, so this flip-flopping isn't something we need to dwell on.
+
+##### Significance Evaluation & Performance\
+
+A good amount of these variables were significant -- we'll opt to discard those that aren't significant though. That includes:
+
+- `AGE`
+- `CAR_AGE`
+- `CLM_FREQ`
+- `HOMEKIDS``
+- `RED_CAR`
+- `SEX`
+- `YOJ`
+
+With an AIC of 5125.6 and residual deviance of 5049.6 we'll use this as a baseline to compare to as we iterate on the model.
+
+```{r model2b_binary, echo=FALSE}
+model2b_binary <- glm(TARGET_FLAG ~ 
+             BLUEBOOK_CLEAN 
+             + CAR_TYPE
+             + CAR_USE 
+             + EDUCATION
+             + HOME_VAL_CLEAN
+             + log_INCOME_CLEAN
+             + JOB
+             + KIDSDRIV
+             + MSTATUS
+             + MVR_PTS
+             + log_OLDCLAIM_CLEAN
+             + PARENT1
+             + REVOKED
+             + sqrt_TIF 
+             + TRAVTIME
+             + URBANICITY
+             , data = train
+             , family = 'binomial')
+
+summary(model2b_binary)
+```
+
+##### Coefficient Evaluation\
+
+In comparison with binary Model 2A, not much has changed here -- all variables that were negative stayed negative and vice versa for positive. A bit of the magnitude has adjusted for some of the fields, but overall, there wasn't too much change between this and the previous model.
+
+##### Significance Evaluation & Performance\
+
+Some variables increased in significance which is good to see. 
+
+Unfortunately, our AIC and residual deviance both increased, signalling this model wasn't better than the first iteration. It's interesting how Model 2B and 1B are both similar in their comparisons to 2A and 1A respectively with similar changes in both iterations.
+
+### Multiple Linear Regression Models
+
+#### Model 1A\
+
+This first model will use all the fields pre-transformed ones.
+
+```{r model1a_lm, echo=FALSE}
+model1a_lm <- lm(TARGET_AMT ~ 
+               AGE 
+             + BLUEBOOK_CLEAN 
+             + CAR_AGE
+             + CAR_TYPE
+             + CAR_USE 
+             + CLM_FREQ
+             + EDUCATION
+             + HOMEKIDS
+             + HOME_VAL_CLEAN
+             + INCOME_CLEAN
+             + JOB
+             + KIDSDRIV
+             + MSTATUS
+             + MVR_PTS
+             + OLDCLAIM_CLEAN
+             + PARENT1
+             + RED_CAR
+             + REVOKED
+             + SEX
+             + TIF 
+             + TRAVTIME
+             + URBANICITY
+             + YOJ
+             , data = train)
+
+summary(model1a_lm)
+```
+#### Coefficient Evaluation\
+
+Looking at the model's coefficients, these had negative values:
+
+- `CAR_AGE`
+- `CAR_USEPrivate`
+- All `EDUCATION` values except for PhD
+- `HOME_VAL_CLEAN`
+- `INCOME_CLEAN`
+- `JOBDoctor`
+- `JOBManager`
+- `OLDCLAIM_CLEAN`
+- `RED_CARyes`
+- `SEXz_F`
+- `TIF`
+- `URBANICITYz_Higlhly Rural/ Rural`
+- `YOJ`
+
+This is indicating that for example, the older the car and the fact that the driver is a woman as well as a doctor or manager, this means that the payout would be lower.
+
+For the positive values:
+
+- `AGE`
+- `BLUEBOOK_CLEAN`
+- All `CAR_TYPE` values
+- `CLM_FREQ`
+- `EDUCATIONz_PhD`
+- `HOMEKIDS`
+- `JOBClerical`
+- `JOBHome Maker`
+- `JOBLawyer`
+- `JOBProfessional`
+- `JOBz_Blue Collar`
+- `JOBStudent`
+- `KIDSDRIV`
+- `MSTATUSz_NO`
+- `MVR_PTS`
+- `PARENT1Yes`
+- `REVOKEDYes`
+- `TRAVTIME`
+- Intercept
+
+This is indicating that for example, a lawyer who is not married and has children who drive would have a higher payout than vice versa.
+
+##### Significance Evaluation & Performance\
+
+A majority of our fields weren't significant, but we'll still try to drop them and see how this affects the model. These dropped fields include:
+
+- `AGE`
+- `BLUEBOOK_CLEAN`
+- `EDUCATION`
+- `HOMEKIDS`
+- `HOME_VAL_CLEAN`
+- `JOB`
+- `OLDCLAIM_CLEAN`
+- `YOJ`
+
+With an adjusted R-squared of 0.06905, this really isn't a very accurate model so let's hope to improve this moving forward.
+
+#### Model 1B\
+
+```{r model1b_lm, echo=FALSE}
+model1b_lm <- lm(TARGET_AMT ~ 
+             CAR_AGE
+             + CAR_TYPE
+             + CAR_USE 
+             + CLM_FREQ
+             + INCOME_CLEAN
+             + KIDSDRIV
+             + MSTATUS
+             + MVR_PTS
+             + PARENT1
+             + RED_CAR
+             + REVOKED
+             + SEX
+             + TIF 
+             + TRAVTIME
+             + URBANICITY
+             , data = train)
+
+summary(model1b_lm)
+```
+
+##### Coefficient Evaluation\
+
+In comparison with binary Model 1A, not much has changed here -- all variables that were negative stayed negative and vice versa for positive. A bit of the magnitude has adjusted for some of the fields, but overall, there wasn't too much change between this and the previous model.
+
+##### Significance Evaluation & Performance\
+
+A majority of these variables have increased in significance which is good to see.
+
+Our adjusted R-squared went down slightly to 0.06623 though which isn't great, but it also isn't a huge drop so overall, both models perform around the same in terms of fit.
+
+#### Model 2A\
+
+This model will begin using normalized variables and transformed versions if their original forms aren't normal.
+
+```{r model2a_lm, echo=FALSE}
+model2a_lm <- lm(TARGET_AMT ~ 
+               AGE 
+             + BLUEBOOK_CLEAN 
+             + CAR_AGE
+             + CAR_TYPE
+             + CAR_USE 
+             + CLM_FREQ
+             + EDUCATION
+             + HOMEKIDS
+             + HOME_VAL_CLEAN
+             + log_INCOME_CLEAN
+             + JOB
+             + KIDSDRIV
+             + MSTATUS
+             + MVR_PTS
+             + log_OLDCLAIM_CLEAN
+             + PARENT1
+             + RED_CAR
+             + REVOKED
+             + SEX
+             + sqrt_TIF 
+             + TRAVTIME
+             + URBANICITY
+             + YOJ
+             , data = train)
+
+summary(model2a_lm)
+```
+
+##### Coefficient Evaluation\
+
+Looking at the model's coefficients, these had negative values:
+
+- `AGE`
+- `CAR_AGE`
+- `CAR_USEPrivate`
+- `CLM_FREQ`
+- All `EDUCATION` values except for PhD
+- `HOME_VAL_CLEAN`
+- `INCOME_CLEAN`
+- `JOBDoctor`
+- `JOBManager`
+- `RED_CARyes`
+- `SEXz_F`
+- `sqrt_TIF`
+- `URBANICITYz_Higlhly Rural/ Rural`
+- `YOJ`
+
+For the positive values:
+
+- `AGE`
+- `BLUEBOOK_CLEAN`
+- All `CAR_TYPE` values
+- `EDUCATIONz_PhD`
+- `HOMEKIDS`
+- `JOBClerical`
+- `JOBHome Maker`
+- `JOBLawyer`
+- `JOBProfessional`
+- `JOBz_Blue Collar`
+- `JOBStudent`
+- `KIDSDRIV`
+- `MSTATUSz_NO`
+- `MVR_PTS`
+- `OLDCLAIM_CLEAN`
+- `PARENT1Yes`
+- `REVOKEDYes`
+- `TRAVTIME`
+- Intercept
+
+Compared to Model 1, a few of these variables have switched from positive to negative or vice versa (specifically `AGE`, `OLDCLAIM_CLEAN`, and `CLM_FREQ`). Age might not be indicative of a payout value as older claims though -- theoretically, the higher that value, the higher your future payouts. The fact that this was negative in the previous iteration is a little confusing, but it seems like it'd be a good thing here now that it's positive and makes more sense.
+
+Regardless, none of these fields are statistically significant at least.
+
+##### Significance Evaluation & Performance\
+
+A majority of our fields weren't significant, but we'll still try to drop them and see how this affects the model. These dropped fields include:
+
+- `AGE`
+- `BLUEBOOK_CLEAN`
+- `CLM_FREQ`
+- `HOMEKIDS`
+- `log_INCOME_CLEAN`
+- `log_OLDCLAIM_CLEAN`
+- `RED_CAR`
+- `YOJ`
+
+With an adjusted R-squared of 0.06843, this really isn't a very accurate model so let's hope to improve this moving forward.
+
+```{r model2b_lm, echo=FALSE}
+model2b_lm <- lm(TARGET_AMT ~ 
+             CAR_AGE
+             + CAR_TYPE
+             + CAR_USE 
+             + EDUCATION
+             + HOME_VAL_CLEAN
+             + JOB
+             + KIDSDRIV
+             + MSTATUS
+             + MVR_PTS
+             + PARENT1
+             + REVOKED
+             + SEX
+             + sqrt_TIF 
+             + TRAVTIME
+             + URBANICITY
+             , data = train)
+
+summary(model2b_lm)
+```
+
+##### Coefficient Evaluation\
+
+In comparison with binary Model 2A, not much has changed here -- all variables that were negative stayed negative and vice versa for positive. A bit of the magnitude has adjusted for some of the fields, but overall, there wasn't too much change between this and the previous model.
+
+##### Significance Evaluation & Performance\
+
+A few of these variables have increased in significance which is good to see.
+
+Our adjusted R-squared went down slightly to 0.06837 unfortunately though, signalling that this isn't a better fit, but it's such a slight decrease that it isn't too significant.
+
+## Select Models
+
+### Binary Models
+
+#### Confusion Matrices\
+
+First, we'll take a look at confusion matrices for each of the models.
+
+```{r confusion_matrix_1a}
+# if the prediction is >= 0.5, then we would predict 1 for that row, otherwise 0
+test$model1a_binary <- ifelse(predict.glm(model1a_binary, test, "response") >= 0.5, 1, 0)
+
+# create the confusion matrix
+cm1a <- confusionMatrix(factor(test$model1a_binary), factor(test$TARGET_FLAG), "1")
+results <- tibble(Model = "Model #1A", Accuracy=cm1a$byClass[11], F1 = cm1a$byClass[7],
+                  Deviance= model1a_binary$deviance, 
+                  R2 = 1 - model1a_binary$deviance / model1a_binary$null.deviance,
+                  AIC = model1a_binary$aic)
+cm1a
+```
+
+```{r confusion_matrix_1b}
+# if the prediction is >= 0.5, then we would predict 1 for that row, otherwise 0
+test$model1b_binary <- ifelse(predict.glm(model1b_binary, test, "response") >= 0.5, 1, 0)
+
+# create the confusion matrix
+cm1b <- confusionMatrix(factor(test$model1b_binary), factor(test$TARGET_FLAG), "1")
+results <- tibble(Model = "Model #1B", Accuracy=cm1b$byClass[11], F1 = cm1b$byClass[7],
+                  Deviance= model1b_binary$deviance, 
+                  R2 = 1 - model1b_binary$deviance / model1b_binary$null.deviance,
+                  AIC= model1b_binary$aic)
+cm1b
+```
+
+```{r confusion_matrix_2a}
+# if the prediction is >= 0.5, then we would predict 1 for that row, otherwise 0
+test$model2a_binary <- ifelse(predict.glm(model2a_binary, test, "response") >= 0.5, 1, 0)
+
+# create the confusion matrix
+cm2a <- confusionMatrix(factor(test$model2a_binary), factor(test$TARGET_FLAG), "1")
+results <- tibble(Model = "Model #2A", Accuracy=cm2a$byClass[11], F1 = cm2a$byClass[7],
+                  Deviance= model2a_binary$deviance, 
+                  R2 = 1 - model2a_binary$deviance / model2a_binary$null.deviance,
+                  AIC= model2a_binary$aic)
+cm2a
+```
+
+```{r confusion_matrix_2b}
+# if the prediction is >= 0.5, then we would predict 1 for that row, otherwise 0
+test$model2b_binary <- ifelse(predict.glm(model2b_binary, test, "response") >= 0.5, 1, 0)
+
+# create the confusion matrix
+cm2b <- confusionMatrix(factor(test$model2b_binary), factor(test$TARGET_FLAG), "1")
+results <- tibble(Model = "Model #2B", Accuracy=cm2b$byClass[11], F1 = cm2b$byClass[7],
+                  Deviance= model2b_binary$deviance, 
+                  R2 = 1 - model2b_binary$deviance / model2b_binary$null.deviance,
+                  AIC= model2b_binary$aic)
+cm2b
+```
+
+#### ROC\
+
+Now with all of these matrices, we'll look at ROC curves.
+
+```{r roc}
+print('Model 1A ROC Curve')
+roc(test[["TARGET_FLAG"]], test[["model1a_binary"]], plot = TRUE, legacy.axes = TRUE, print.auc = TRUE)
+
+print('Model 1B ROC Curve')
+roc(test[["TARGET_FLAG"]], test[["model1b_binary"]], plot = TRUE, legacy.axes = TRUE, print.auc = TRUE)
+
+print('Model 2A ROC Curve')
+roc(test[["TARGET_FLAG"]], test[["model2a_binary"]], plot = TRUE, legacy.axes = TRUE, print.auc = TRUE)
+
+print('Model 2B ROC Curve')
+roc(test[["TARGET_FLAG"]], test[["model2b_binary"]], plot = TRUE, legacy.axes = TRUE, print.auc = TRUE)
+```
+
+#### Overall Comparisons\
+
+```{r comparing, echo=FALSE}
+# function to pull out performance statistics
+model_perf <- function(model, model_summary, confusion_matrix) {
+  data.frame("Residual Deviance" = model$deviance,
+             "AIC" = model$aic,
+             "Accuracy" = confusion_matrix$byClass[11],
+             "F1" = confusion_matrix$byClass[7],
+             "R2" = 1 - model_summary$deviance / model_summary$null.deviance
+  )
+}
+
+summary_table <- bind_rows(
+  model_perf(model1a_binary, summary(model1a_binary), cm1a),
+  model_perf(model1b_binary, summary(model1b_binary), cm1b),
+  model_perf(model2a_binary, summary(model2a_binary), cm2a),
+  model_perf(model2b_binary, summary(model2b_binary), cm2b),
+) 
+
+rownames(summary_table) <- c("Model 1A", "Model 1B", "Model 2A", "Model 2B")
+
+summary_table
+```
+
+Based on the above output:
+
+- Residual Deviance: Model 1B had the lowest Residual Deviance byfar
+- AIC: Model 1B had the best AIC as well
+- Accuracy: Model 2B had the best Accuracy, but not by much
+- F1: Model 2B had the best F1 statistic
+- R^2: Model 2A had the highest R^2, although this was just barely
+
+#### Binary Model Conclusion\
+
+With this information, Model 1B seems to outperform the other models due to its better Residual Deviance and AIC, Accuracy, F1, and R^2 are all so close between the other models, so given 1B outperforms so much more for RD and AIC, we believe this would be the best fitting model.
+
+### Linear Models
+
+We'll start by looking at mean squared error, adjusted r-squared, and F-statistics before plotting residuals after.
+
+```{r comparing_linear_models, echo=FALSE}
+# function to pull out performance statistics
+model_perf <- function(model, model_summary) {
+  data.frame("MSE" = mean(model$residuals^2),
+             "Adjusted R-Squared" = model_summary$adj.r.squared,
+             "F-Statistic" = model_summary$fstatistic[1],
+             "F p-value" = pf(model_summary$fstatistic[1]
+                              , model_summary$fstatistic[2]
+                              , model_summary$fstatistic[3]
+                              , lower.tail=FALSE)
+  )
+}
+
+summary_table <- bind_rows(
+  model_perf(model1a_lm, summary(model1a_lm)),
+  model_perf(model1b_lm, summary(model1b_lm)),
+  model_perf(model2a_lm, summary(model2a_lm)),
+  model_perf(model2b_lm, summary(model2b_lm)),
+) 
+
+rownames(summary_table) <- c("Model 1A", "Model 1B", "Model 2A", "Model 2B")
+
+summary_table
+```
+
+Based on the above output:
+
+- MSE: Model 1A had the best MSE as it's slightly lower than the other values
+- Adjusted R-Squared: Model 1A once again is doing slightly better here
+- F Statistic: Model 1B does the best here at 22.32
+
+Next, we will compare how these models do with the test dataset and compare residuals.
+
+```{r residuals, echo=FALSE}
+results <- model1a_lm %>% predict(train) %>% as.data.frame() %>% 
+  mutate(Predicted = train$TARGET_AMT, model = "Model 1A") %>% 
+  bind_rows(model1b_lm %>% predict(train) %>% as.data.frame() %>% 
+              mutate(Predicted = train$TARGET_AMT, model = "Model 1B"),
+            model2a_lm %>% predict(train) %>% as.data.frame() %>% 
+              mutate(Predicted = train$TARGET_AMT, model = "Model 2A"),
+            model2b_lm %>% predict(train) %>% as.data.frame() %>% 
+              mutate(Predicted = train$TARGET_AMT, model = "Model 2B")) %>% 
+  rename("Observed" = ".") %>% 
+  mutate(dataset = "Training Set") %>% 
+  bind_rows(
+    results_test <- model1a_lm %>% predict(test) %>% as.data.frame() %>%
+      mutate(Predicted = test$TARGET_AMT, model = "Model 1A") %>% 
+      bind_rows(model1b_lm %>% predict(test) %>% as.data.frame() %>% 
+                  mutate(Predicted = test$TARGET_AMT, model = "Model 1B"),
+                model2a_lm %>% predict(test) %>% as.data.frame() %>% 
+                  mutate(Predicted = test$TARGET_AMT, model = "Model 2A"),
+                model2b_lm %>% predict(test) %>% as.data.frame() %>% 
+                  mutate(Predicted = test$TARGET_AMT, model = "Model 2B")) %>% 
+      rename("Observed" = ".") %>% 
+      mutate(dataset = "Testing Set")
+  )
+
+results_with_rsq <- results %>%
+  group_by(dataset, model) %>%
+  summarize(r_squared = summary(lm(Predicted ~ Observed))$r.squared)
+
+results %>% 
+  ggplot(mapping = aes(x = Observed, y = Predicted)) +
+  geom_point(pch = 21, alpha = 0.25, fill = "#00abff") +
+  geom_smooth(method = "lm", color = "#ff9999") +
+  facet_wrap(dataset~model, ncol = 4) +
+  geom_text(data = results_with_rsq, aes(label = paste("R^2 =", round(r_squared, 3)),
+            x = Inf, y = -Inf), hjust = 1, vjust = 0, size = 4)
+```
+
+Interestingly, it seems that the second set of models performed slightly better when using the test dataset. The best performing model looking at the training set was the first one which was just using all features in the state they're provided (so untransformed). Visually, the residual plots don't seem to vary too much; they all are around the same r-squared so the change between them isn't too apparent.
+
+#### Linear Model Conclusion\
+
+Based on all of the factors shown above, Model 2B seems to be the most viable. It performs solidly when we looked the MSE, adjusted r-squared, and F-statistic, while also was one of the slightly better performing one out of the second round of models when using the test dataset. It uses transformed/more normalized variables while also filtering out the statistically insignificant features as well, resulting in a well-performing model with relevant features.

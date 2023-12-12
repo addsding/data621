@@ -2,7 +2,9 @@
 title: "homework5"
 author: "Alice Ding"
 date: "2023-12-05"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 ```{r imports, echo=FALSE, message=FALSE}
@@ -50,15 +52,658 @@ Below is a short description of the variables of interest in the data set:
 First, we'll view the summary and then we'll check if there are data points missing. Then, we'll clean the fields up to make sure they're ready for analysis.
 
 ```{r import}
-training <- read.csv('https://raw.githubusercontent.com/addsding/data621/main/homework4/insurance_training_data.csv')
-evaluation <- read.csv('https://raw.githubusercontent.com/addsding/data621/main/homework4/insurance-evaluation-data.csv')
+training <- read.csv('https://raw.githubusercontent.com/addsding/data621/main/homework5/wine-training-data.csv')
+evaluation <- read.csv('https://raw.githubusercontent.com/addsding/data621/main/homework5/wine-evaluation-data.csv')
 
 summary <- as.data.frame(describe(training))
-nulls <- 8161 - summary['n']
-nulls_pct <- nulls / 8161
+nulls <- 12795 - summary['n']
+nulls_pct <- nulls / 12795
 summary['nulls'] <- nulls
 summary['nulls_pct'] <- nulls_pct
 kable(summary, digits=2) |>
   kable_styling(c("striped", "scale_down")) |>
   scroll_box(width = "100%")
 ```
+
+The data has 16 variables with 12,795 observations
+
+It looks like the only fields with nulls are `ResidualSugar`, `Chlorides`, `FreeSulfurDioxide`, `TotalSulfurDioxide`, `pH`, `Sulphates`, `Alcohol`, and `STARS`. The last field has the most amount of nulls at 26% of the data, but luckily the rest of the fields have < 10% nulls so that's good to keep in mind.
+
+At first glance, there don't seem to be too many skewed variables -- medians and means all seem relatively close together which is nice to see.
+
+Some interesting points are that a few of these fields go into the negatives -- not entirely sure what for example a negative `Alcohol` value would mean.
+
+What types of fields are each of our variables?
+
+```{r summary}
+summary(training)
+```
+
+All of these variables are numeric and looks like they're formatted correctly which is great to see.
+
+### Distributions
+
+Let's see what all of these fields look like distribution wise.
+
+```{r distribution_hist, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+my_plots_hist <- lapply(names(training[2:16]), function(var_x){
+  p <- 
+    ggplot(training[2:16]) +
+    aes_string(var_x)
+  p <- p + geom_histogram()
+})
+
+plot_grid(plotlist = my_plots_hist)
+```
+
+In line with the previous observation that medians and means all looked relatively close, this data all looks relatively normal. There are a few skews notably in the `Alcohol`, `CitricAcid`, `AcidIndex` and `STARS` fields, but compared to other datasets, this is all looking very solid. The peaks for the middle points are quite tall so there may be quite a few outliers for those on the edges of the curves.
+
+How do these look as boxplots?
+
+```{r distribution_box, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+my_plots_box <- lapply(names(training[2:16]), function(var_x){
+  p <- 
+    ggplot(training[2:16]) +
+    aes_string(var_x) + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1))
+    p <- p + geom_boxplot()
+})
+
+plot_grid(plotlist = my_plots_box)
+```
+
+As noted in the previous section, there are quite a few outliers in most of these fields due to such large peaks around the center for all of these. Just based on the nature of the data, I would likely not want to impute any of these outliers, but we'll see in a later section whether or not to do so. 
+
+### Correlations
+
+Let's see how each of the numerical fields correlate with `target` -- we'll start with the first seven fields.
+
+```{r correlation_1, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+ggpairs(training[, c('TARGET', 'FixedAcidity', 'VolatileAcidity', 'CitricAcid', 'ResidualSugar', 'Chlorides', 'FreeSulfurDioxide', 'TotalSulfurDioxide')])
+```
+
+Interestingly, it seems that there aren't too many correlated fields again -- only `Fixed Acidity` and `FreeSulfurDioxide` with the latter being much more significantly correlated. Implication wise, both are negatively correlated which means that the less acidity and less sulfur dioxide, the more cases of wine sold.
+
+These fields aren't too correlated with one another interestingly enough.
+
+What do the relationships look like for the rest of the fields?
+
+```{r correlation_2, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+ggpairs(training[, c('TARGET', 'Density', 'pH', 'Sulphates', 'Alcohol', 'LabelAppeal', 'AcidIndex', 'STARS')])
+```
+
+Interestingly, it seems that there aren't too many correlated fields -- only `Fixed Acidity` and `FreeSulfurDioxide` with the latter being much more significantly correlated. Implication wise, both are negatively correlated which means that the less acidity and less sulfur dioxide, the more cases of wine sold.
+
+There are more correlations here than in the previous set of variables, but let's see if they're also correlated with each other beyond just the seven displayed here.
+
+```{r correlation_3, echo=FALSE}
+correlation = cor(training, use = 'pairwise.complete.obs')
+
+corrplot(correlation, 'ellipse', type = 'lower', order = 'hclust',
+         col=brewer.pal(n=8, name="RdYlBu"))
+```
+These correlations between variables aren't too strong, ranging from -0.25 to 0.25 on average. `STARS` and `TARGET` are a bit stronger in correlation, however it isn't too high to be an issue. This was also expected based on our initial readings of the data.
+
+## Data Preparation
+
+### Imputing Values
+
+A hint for this homework assignment originally was that sometimes the absence of a variable could be indicative of our target. Given this information, perhaps we actually leave the fields with nulls and create a new variable that imputes them so we have both versions of the field.
+
+We usually also address outliers, however we're relying on the fact that:
+
+- This data was all collected without error
+- This data all truly represents natural variations in the population
+- This data is not impacted by poor sampling
+
+With these assumptions, we are erring on not imputing outliers and leaving the data as is, especially given the natural normalness of the curves.
+
+```{r replace_nulls, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+training$STARS_nona <- training$STARS
+training$STARS_nona[is.na(training$STARS)] <- median(training$STARS, na.rm=TRUE)
+
+training$Sulphates_nona <- training$Sulphates
+training$Sulphates_nona[is.na(training$Sulphates)] <- median(training$Sulphates, na.rm=TRUE)
+
+training$TotalSulfurDioxide_nona <- training$TotalSulfurDioxide
+training$TotalSulfurDioxide_nona[is.na(training$TotalSulfurDioxide)] <- median(training$TotalSulfurDioxide, na.rm=TRUE)
+
+training$Alcohol_nona <- training$Alcohol
+training$Alcohol_nona[is.na(training$Alcohol)] <- median(training$Alcohol, na.rm=TRUE)
+
+training$FreeSulfurDioxide_nona <- training$FreeSulfurDioxide
+training$FreeSulfurDioxide_nona[is.na(training$FreeSulfurDioxide)] <- median(training$FreeSulfurDioxide, na.rm=TRUE)
+
+training$Chlorides_nona <- training$Chlorides
+training$Chlorides_nona[is.na(training$Chlorides)] <- median(training$Chlorides, na.rm=TRUE)
+
+training$ResidualSugar_nona <- training$ResidualSugar
+training$ResidualSugar_nona[is.na(training$ResidualSugar)] <- median(training$ResidualSugar, na.rm=TRUE)
+
+training$pH_nona <- training$pH
+training$pH_nona[is.na(training$pH)] <- median(training$pH, na.rm=TRUE)
+
+my_plots_box <- lapply(names(training), function(var_x){
+  p <- 
+    ggplot(training) +
+    aes_string(var_x)
+    p <- p + geom_boxplot()
+})
+
+plot_grid(plotlist = my_plots_box)
+```
+Upon first glance, it looks like the amount of outliers has increased for each of these fields where we imputed nulls probably due to the increase in medians which typically are the peaks of the distribution.
+
+### Transform Non-Normal Variables
+
+Given all of these fields are pretty normal (albeit a few skewed, but still overall in very good shape), we'll opt to not transform any of these fields.
+
+## Build Models
+
+Before doing anything, we will split the data into training and test sets with a 70/30 split.
+
+```{r split, echo=FALSE, message=FALSE}
+set.seed(123)
+train_index <- createDataPartition(training$TARGET, p = .7, times = 1, list = FALSE)
+train <- training[train_index,]
+test <- training[-train_index,]
+```
+
+We'll go through two sets of models:
+
+- Model 1: Poisson Regression
+  - Using unadjusted variables
+  - Using variables with no NAs
+- Model 2: Negative Binomial Regression
+  - Using unadjusted variables
+  - Using variables with no NAs
+
+### Model 1A
+
+This first model will use poisson regression and non-adjusted variables, then we'll refine it by looking at significant variables.
+
+```{r model1a, echo=FALSE}
+model1a <- glm(TARGET ~ 
+               AcidIndex 
+             + Alcohol 
+             + Chlorides
+             + CitricAcid
+             + Density 
+             + FixedAcidity
+             + FreeSulfurDioxide
+             + LabelAppeal
+             + ResidualSugar
+             + STARS
+             + Sulphates
+             + TotalSulfurDioxide
+             + VolatileAcidity
+             + pH
+             , data = train
+             , family = 'poisson')
+
+summary(model1a)
+```
+
+#### Coefficient Evaluation\
+
+Looking at the model's coefficients, these had negative values:
+
+- `AcidIndex`
+- `Chlorides`
+- `CitricAcid`
+- `Density`
+- `ResidualSugar`
+- `Sulphates`
+- `VolatileAcidity`
+- `pH`
+
+These negative coefficients imply that the higher these values, the lower amount of cases will be sold. For example, just using some of the variables, we can interpret here that higher acidity, sugar, and density would make for a lower performing wine.
+
+For the positive values:
+
+- `Alcohol`
+- `FixedAcidity`
+- `FreeSulfurDioxide`
+- `LabelAppeal`
+- `STARS`
+- `TotalSulfurDioxide`
+- Intercept
+
+This would imply that for these fields, if they are higher in value, this would mean that more units would be sold. For example, just using some of the variables, wine with a higher alcohol content and more label appeal would have higher sales than those with lower values for those fields.
+
+#### Significance Evaluation & Performance\
+
+Only a few fields were statistically significant:
+
+- Intercept
+- `AcidIndex`
+- `LabelAppeal`
+- `STARS`
+- `VolatileAcidity`
+
+The theoretical effect table had alluded to `LabelAppeal` and `STARS` being good indicators so that's not too surprising, but acidity having an effect is interesting. 
+
+With an AIC of 16172 and residual deviance of 2812, we'll use this as a baseline to compare to as we iterate on the model.
+
+### Model 1B
+
+```{r model1b, echo=FALSE}
+model1b <- glm(TARGET ~ 
+               AcidIndex 
+             + LabelAppeal
+             + STARS
+             + VolatileAcidity
+             , data = train
+             , family = 'poisson')
+
+summary(model1b)
+```
+
+#### Coefficient Evaluation\
+
+Between this and Model 1A, the coefficients have only changed in magnitude and not so much direction, however not by too much.
+
+#### Significance Evaluation & Performance\
+
+They've all increased in significance which is good to see.
+
+Performance wise though, AIC and residual deviance have both increased sadly signalling this model is not a better fit than our previous iteration.
+
+Let's try a poisson model now using our non-NA fields.
+
+### Model 1C
+
+```{r model1c, echo=FALSE}
+model1c <- glm(TARGET ~ 
+               AcidIndex 
+             + Alcohol_nona
+             + Chlorides_nona
+             + CitricAcid
+             + Density
+             + FixedAcidity
+             + FreeSulfurDioxide_nona
+             + LabelAppeal
+             + ResidualSugar_nona
+             + STARS_nona
+             + Sulphates_nona
+             + TotalSulfurDioxide_nona
+             + VolatileAcidity
+             + pH_nona
+             , data = train
+             , family = 'poisson')
+
+summary(model1c)
+```
+
+#### Coefficient Evaluation\
+
+Looking at the model's coefficients, these had negative values:
+
+- `AcidIndex`
+- `Chlorides_nona`
+- `Density`
+- `FixedAcidity`
+- `Sulphates`
+- `VolatileAcidity`
+- `pH_nona`
+
+Interestingly, compared to Model 1A, `CitricAcid`, `FixedAcidity`, and `ResidualSugar` seem to have flipped; `FixedAcidity` is now negative despite being positive in impact previously.
+
+For the positive values:
+
+- `Alcohol_nona`
+- `CitricAcid`
+- `FreeSulfurDioxide_nona`
+- `LabelAppeal`
+- `ResidualSugar_nona`
+- `STARS_nona`
+- `TotalSulfurDioxide_nona`
+- Intercept
+
+#### Significance Evaluation & Performance\
+
+Compared to Model 1A, many more fields are significant now:
+
+- Intercept
+- `Alcohol_nona`
+- `AcidIndex`
+- `Chlorides_nona`
+- `Density`
+- `FreeSulfurDioxide_nona`
+- `LabelAppeal`
+- `STARS_nona`
+- `Sulphates_nona`
+- `TotalSulfurDioxide_nona`
+- `VolatileAcidity`
+- `pH_nona`
+
+The additional significant fields seem to be a good indicator.
+
+With an AIC of 35232 and residual deviance of 12838, we'll use this as a baseline to compare to as we iterate on the model. Note that this is much higher (worse) than the first iterations of the model though.
+
+### Model 1D
+
+```{r model1d, echo=FALSE}
+model1d <- glm(TARGET ~ 
+               AcidIndex 
+             + Alcohol_nona
+             + Chlorides_nona
+             + Density
+             + FreeSulfurDioxide_nona
+             + LabelAppeal
+             + STARS_nona
+             + Sulphates_nona
+             + TotalSulfurDioxide_nona
+             + VolatileAcidity
+             + pH_nona
+             , data = train
+             , family = 'poisson')
+
+summary(model1d)
+```
+
+#### Coefficient Evaluation\
+
+Nothing has flipped from positve to negative or vice versa and the magnitude for each variable is similar to Model 1C.
+
+#### Significance Evaluation & Performance\
+
+Interestingly, nothing has changed in terms of significance -- they all have the same levels.
+
+We do see similar AIC and residual deviance as well when compared to Model 1C.
+
+### Model 2A
+
+We'll now move onto negative binomial regression models now.
+
+```{r model2a, echo=FALSE}
+model2a <- glm.nb(TARGET ~ 
+               AcidIndex 
+             + Alcohol 
+             + Chlorides
+             + CitricAcid
+             + Density 
+             + FixedAcidity
+             + FreeSulfurDioxide
+             + LabelAppeal
+             + ResidualSugar
+             + STARS
+             + Sulphates
+             + TotalSulfurDioxide
+             + VolatileAcidity
+             + pH
+             , data = train)
+
+summary(model2a)
+```
+
+#### Coefficient Evaluation\
+
+Looking at the model's coefficients, these had negative values:
+
+- `AcidIndex`
+- `Chlorides`
+- `CitricAcid`
+- `Density`
+- `ResidualSugar`
+- `Sulphates`
+- `VolatileAcidity`
+- `pH`
+
+This is identical to Model 1A.
+
+For the positive values:
+
+- `Alcohol`
+- `FixedAcidity`
+- `FreeSulfurDioxide`
+- `LabelAppeal`
+- `STARS`
+- `TotalSulfurDioxide`
+- Intercept
+
+#### Significance Evaluation & Performance\
+
+Only a few fields were statistically significant:
+
+- Intercept
+- `AcidIndex`
+- `LabelAppeal`
+- `STARS`
+- `VolatileAcidity`
+
+Again, identical to Model 1A.
+
+With an AIC of 16174 and residual deviance of 2812, we'll use this as a baseline to compare to as we iterate on the model.
+
+### Model 2B
+
+```{r model2b, echo=FALSE}
+model2b <- glm.nb(TARGET ~ 
+               AcidIndex 
+             + LabelAppeal
+             + STARS
+             + VolatileAcidity
+             , data = train)
+
+summary(model2b)
+```
+
+#### Coefficient Evaluation\
+
+Between this and Model 2A, the coefficients have only changed in magnitude and not so much direction, however not by too much.
+
+#### Significance Evaluation & Performance\
+
+They're all at the same level of significance, but the actual numbers themselves have gotten stronger.
+
+Performance wise though, AIC and residual deviance have both increased sadly signalling this model is not a better fit than our previous iteration.
+
+Let's try a negative binomial model now using our non-NA fields.
+
+### Model 2C
+
+```{r model2c, echo=FALSE}
+model2c <- glm.nb(TARGET ~ 
+               AcidIndex 
+             + Alcohol_nona
+             + Chlorides_nona
+             + CitricAcid
+             + Density
+             + FixedAcidity
+             + FreeSulfurDioxide_nona
+             + LabelAppeal
+             + ResidualSugar_nona
+             + STARS_nona
+             + Sulphates_nona
+             + TotalSulfurDioxide_nona
+             + VolatileAcidity
+             + pH_nona
+             , data = train)
+
+summary(model2c)
+```
+
+#### Coefficient Evaluation\
+
+Looking at the model's coefficients, these had negative values:
+
+- `AcidIndex`
+- `Chlorides_nona`
+- `Density`
+- `FixedAcidity`
+- `Sulphates_nona`
+- `VolatileAcidity`
+- `pH_nona`
+
+Interestingly, compared to Model 1A and Model 2A, `CitricAcid`, `FixedAcidity`, and `ResidualSugar` seem to have flipped; `FixedAcidity` is now negative despite being positive in impact previously.
+
+For the positive values:
+
+- `Alcohol_nona`
+- `CitricAcid`
+- `FreeSulfurDioxide_nona`
+- `LabelAppeal`
+- `ResidualSugar_nona`
+- `STARS_nona`
+- `TotalSulfurDioxide_nona`
+- Intercept
+
+#### Significance Evaluation & Performance\
+
+Compared to Model 2A, many more fields are significant now:
+
+- Intercept
+- `Alcohol_nona`
+- `AcidIndex`
+- `Chlorides_nona`
+- `Density`
+- `FreeSulfurDioxide_nona`
+- `LabelAppeal`
+- `STARS_nona`
+- `Sulphates_nona`
+- `TotalSulfurDioxide_nona`
+- `VolatileAcidity`
+- `pH_nona`
+
+The additional significant fields seem to be a good indicator.
+
+With an AIC of 35234 and residual deviance of 12838, we'll use this as a baseline to compare to as we iterate on the model. Note that this is much higher (worse) than the first iterations of the model though.
+
+### Model 2D
+
+```{r model2d, echo=FALSE}
+model2d <- glm.nb(TARGET ~ 
+               AcidIndex 
+             + Alcohol_nona
+             + Chlorides_nona
+             + Density
+             + FreeSulfurDioxide_nona
+             + LabelAppeal
+             + STARS_nona
+             + Sulphates_nona
+             + TotalSulfurDioxide_nona
+             + VolatileAcidity
+             + pH_nona
+             , data = train)
+
+summary(model2d)
+```
+
+#### Coefficient Evaluation\
+
+Nothing has flipped from positve to negative or vice versa and the magnitude for each variable is similar to Model 2C.
+
+#### Significance Evaluation & Performance\
+
+Interestingly, nothing has changed in terms of significance -- they all have the same levels.
+
+We do see similar AIC and residual deviance as well when compared to Model 2C.
+
+## Select Models
+
+```{r comparing, echo=FALSE}
+# function to pull out performance statistics
+model_perf <- function(model, model_summary) {
+  data.frame("MSE" = mean(model$residuals^2),
+             "AIC" = model$aic
+  )
+}
+
+summary_table <- bind_rows(
+  model_perf(model1a, summary(model1a)),
+  model_perf(model1b, summary(model1b)),
+  model_perf(model1c, summary(model1c)),
+  model_perf(model1d, summary(model1d)),
+  model_perf(model2a, summary(model2a)),
+  model_perf(model2b, summary(model2b)),
+  model_perf(model2c, summary(model2c)),
+  model_perf(model2d, summary(model2d)),
+) 
+
+rownames(summary_table) <- c("Model 1A", "Model 1B", "Model 1C", "Model 1D", "Model 2A", "Model 2B", "Model 2C", "Model 2D")
+
+summary_table
+```
+
+Based on the above output, Model B had the best MSEs with Model A close behind. For AIC however, Model A performed the best byfar with Model B performing the best next, but still not too good. Models C and D for both iterations were pretty poor.
+
+In terms of distinction between Models 1 and 2, there doesn't seem to be much so it's safe to say that poisson and negative binomial regression perform relatively similarly.
+
+Next, we will compare how these models do with the test dataset and compare residuals.
+
+```{r residuals, echo=FALSE}
+results <- model1a %>% predict(train) %>% as.data.frame() %>% 
+  mutate(Predicted = train$TARGET, model = "Model 1A") %>% 
+  bind_rows(model1b %>% predict(train) %>% as.data.frame() %>% 
+              mutate(Predicted = train$TARGET, model = "Model 1B"),
+            model1c %>% predict(train) %>% as.data.frame() %>% 
+              mutate(Predicted = train$TARGET, model = "Model 1C"),
+            model1d %>% predict(train) %>% as.data.frame() %>% 
+              mutate(Predicted = train$TARGET, model = "Model 1D"),
+            model2a %>% predict(train) %>% as.data.frame() %>% 
+              mutate(Predicted = train$TARGET, model = "Model 2A"),
+            model2b %>% predict(train) %>% as.data.frame() %>% 
+              mutate(Predicted = train$TARGET, model = "Model 2B"),
+            model2c %>% predict(train) %>% as.data.frame() %>% 
+              mutate(Predicted = train$TARGET, model = "Model 2C"),
+            model2d %>% predict(train) %>% as.data.frame() %>% 
+              mutate(Predicted = train$TARGET, model = "Model 2D")) %>% 
+  rename("Observed" = ".") %>% 
+  mutate(dataset = "Training Set") %>% 
+  bind_rows(
+    results_test <- model1a %>% predict(test) %>% as.data.frame() %>%
+      mutate(Predicted = test$TARGET, model = "Model 1A") %>% 
+      bind_rows(model1b %>% predict(test) %>% as.data.frame() %>% 
+                  mutate(Predicted = test$TARGET, model = "Model 1B"),
+                model1c %>% predict(test) %>% as.data.frame() %>% 
+                  mutate(Predicted = test$TARGET, model = "Model 1C"),
+                model1d %>% predict(test) %>% as.data.frame() %>% 
+                  mutate(Predicted = test$TARGET, model = "Model 1D"),
+                model2a %>% predict(test) %>% as.data.frame() %>% 
+                  mutate(Predicted = test$TARGET, model = "Model 2A"),
+                model2b %>% predict(test) %>% as.data.frame() %>% 
+                  mutate(Predicted = test$TARGET, model = "Model 2B"),
+                model2c %>% predict(test) %>% as.data.frame() %>% 
+                  mutate(Predicted = test$TARGET, model = "Model 2C"),
+                model2d %>% predict(test) %>% as.data.frame() %>% 
+                  mutate(Predicted = test$TARGET, model = "Model 2D"),) %>% 
+      rename("Observed" = ".") %>% 
+      mutate(dataset = "Testing Set")
+  )
+
+models_1 <- filter(results, model == "Model 1A" | model == "Model 1B" | model == "Model 1C" | model == "Model 1D")
+models_2 <- filter(results, model == "Model 2A" | model == "Model 2B" | model == "Model 2C" | model == "Model 2D")
+
+results_with_aic_models_1 <- models_1 %>%
+  group_by(dataset, model) %>%
+  summarize(aic = glm(Predicted ~ Observed, family = 'poisson')$aic)
+
+results_with_aic_models_2 <- models_2 %>%
+  group_by(dataset, model) %>%
+  summarize(aic = glm.nb(Predicted ~ Observed)$aic)
+
+results_with_aic <- rbind(results_with_aic_models_1, results_with_aic_models_2)
+
+results %>% 
+  ggplot(mapping = aes(x = Observed, y = Predicted)) +
+  geom_point(pch = 21, alpha = 0.25, fill = "#00abff") +
+  geom_smooth(method = "lm", color = "#ff9999") +
+  facet_wrap(dataset~model, ncol = 4) +
+  geom_text(data = results_with_aic, aes(label = paste("AIC =", round(aic, 3)),
+            x = Inf, y = -Inf), hjust = 1, vjust = 0, size = 4)
+
+```
+
+Interestingly, it seems that the testing sets performed better than the training sets with AICs of under half the training set iterations. The trends hold true though where Models A outperform the rest with Models B as second best.
+
+### Final Selection\
+
+Based on all of the factors shown above, it seems like Model 1A is just slightly better than Model 2A which both outperform the rest. Given the lowest AICs and second-best MSEs, they seem to capture the target value of wine purchases the best out of all 8 models we created.

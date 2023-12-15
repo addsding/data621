@@ -1,0 +1,725 @@
+---
+title: "Final Project"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+```{r imports, echo=FALSE, message=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(psych)
+library(cowplot)
+library(GGally)
+library(corrplot)
+library(RColorBrewer)
+library(MASS)
+library(caret)
+library(knitr)
+library(kableExtra)
+library(pROC)
+library(rpart)
+library(rattle)
+library(rpart.plot)
+library(RColorBrewer)
+```
+
+
+## Overview
+
+For this semester's final project, I will be using a heart risk dataset from [Kaggle](https://www.kaggle.com/datasets/iamsouravbanerjee/heart-attack-prediction-dataset/data) to help determine traits that contribute to whether someone is at risk for a heart attack.
+
+Taken from the source:
+
+> This dataset provides a comprehensive array of features relevant to heart health and lifestyle choices, encompassing patient-specific details such as age, gender, cholesterol levels, blood pressure, heart rate, and indicators like diabetes, family history, smoking habits, obesity, and alcohol consumption. Additionally, lifestyle factors like exercise hours, dietary habits, stress levels, and sedentary hours are included. Medical aspects comprising previous heart problems, medication usage, and triglyceride levels are considered. Socioeconomic aspects such as income and geographical attributes like country, continent, and hemisphere are incorporated. The dataset, consisting of 8763 records from patients around the globe, culminates in a crucial binary classification feature denoting the presence or absence of a heart attack risk, providing a comprehensive resource for predictive analysis and research in cardiovascular health.
+
+Fields in the dataset are:
+
+- Patient ID - Unique identifier for each patient
+- Age - Age of the patient
+- Sex - Gender of the patient (Male/Female)
+- Cholesterol - Cholesterol levels of the patient
+- Blood Pressure - Blood pressure of the patient (systolic/diastolic)
+- Heart Rate - Heart rate of the patient
+- Diabetes - Whether the patient has diabetes (Yes/No)
+- Family History - Family history of heart-related problems (1: Yes, 0: No)
+- Smoking - Smoking status of the patient (1: Smoker, 0: Non-smoker)
+- Obesity - Obesity status of the patient (1: Obese, 0: Not obese)
+- Alcohol Consumption - Level of alcohol consumption by the patient (None/Light/Moderate/Heavy)
+- Exercise Hours Per Week - Number of exercise hours per week
+- Diet - Dietary habits of the patient (Healthy/Average/Unhealthy)
+- Previous Heart Problems - Previous heart problems of the patient (1: Yes, 0: No)
+- Medication Use - Medication usage by the patient (1: Yes, 0: No)
+- Stress Level - Stress level reported by the patient (1-10)
+- Sedentary Hours Per Day - Hours of sedentary activity per day
+- Income - Income level of the patient
+- BMI - Body Mass Index (BMI) of the patient
+- Triglycerides - Triglyceride levels of the patient
+- Physical Activity Days Per Week - Days of physical activity per week
+- Sleep Hours Per Day - Hours of sleep per day
+- Country - Country of the patient
+- Continent - Continent where the patient resides
+- Hemisphere - Hemisphere where the patient resides
+- Heart Attack Risk - Presence of heart attack risk (1: Yes, 0: No) // TARGET VARIABLE
+
+## Data Exploration
+
+First, we'll view the summary and then we'll check if there are data points missing. Then, we'll clean the fields up to make sure they're ready for analysis.
+
+```{r import}
+training <- read.csv('https://raw.githubusercontent.com/addsding/data621/main/project/heart_attack_prediction_dataset.csv')
+
+summary <- as.data.frame(describe(training))
+nulls <- 8763 - summary['n']
+nulls_pct <- nulls / 12795
+summary['nulls'] <- nulls
+summary['nulls_pct'] <- nulls_pct
+kable(summary, digits=2) |>
+  kable_styling(c("striped", "scale_down")) |>
+  scroll_box(width = "100%")
+```
+
+There are 8763 observations and a total of 26 variables in this dataset.
+
+Overall, the data looks relatively clean -- means and medians are somewhat close together as well, signalling a normal distribution.
+
+Luckily, it looks like there is no missing information.
+
+One issue observed is the `Alcohol.Consumption` field -- the description of the dataset has this as a categorical variable with more than 2 options, however the dataset presents it as a binary 0 or 1. This has been noted and will be interpreted now as whether someone indulges in alcohol regularly.
+
+What types of fields are each of our variables?
+
+```{r summary}
+summary(training)
+```
+
+It looks like there's a good mix of continuous and categorical data, however some of these character fields will need to be converted into factors and for blood pressure, that field will need to be split between systolic and diastolic.
+
+### Data Cleaning
+
+#### Blood Pressure\
+
+To do this, `dplyr` has a nice functionality to separate columns.
+
+```{r blood_pressure_clean}
+training <- training |>
+  separate(Blood.Pressure, sep='/', c('Systolic', 'Diastolic'))
+
+training$Systolic <- as.numeric(training$Systolic)
+training$Diastolic <- as.numeric(training$Diastolic)
+
+summary(training)
+```
+
+Now with blood pressure broken down, next is factorizing the categorical fields.
+
+#### Data Types\
+
+The fields to be changed are:
+
+- `Sex`
+- `Diet`
+- `Country`
+- `Continent`
+- `Hemisphere`
+
+```{r data_types}
+training$Sex <- as.factor(training$Sex)
+training$Diet <- as.factor(training$Diet)
+training$Country <- as.factor(training$Country)
+training$Continent <- as.factor(training$Continent)
+training$Hemisphere <- as.factor(training$Hemisphere)
+
+summary(training)
+summary <- as.data.frame(describe(training))
+nulls <- 8763 - summary['n']
+nulls_pct <- nulls / 8161
+summary['nulls'] <- nulls
+summary['nulls_pct'] <- nulls_pct
+kable(summary, digits=2) |>
+  kable_styling(c("striped", "scale_down")) |>
+  scroll_box(width = "100%")
+```
+
+### Class Bias Check
+
+For a binary logistic regression model, there are only two target values: 0 and 1. Ideally, there should be an equal representation of both because if imbalance were to deviate, model performance would suffer from effects of differential variance between the classes and bias, thus picking the more represented class. For logistic regression, if there is a strong imbalance, we can:
+
+- up-sample the smaller group (e.g. bootstrapping),
+- down-sample the larger group (e.g. sampling or bootstrapping)
+- adjust our threshold for assigning the predicted value away from 0.5.
+
+What is the exact distribution of `Heart.Attack.Risk`?
+
+```{r target_class_distr}
+table(training$Heart.Attack.Risk)
+```
+
+Looks like 0 is more heavily present here -- we'll have to up-sample the smaller group here.
+
+```{r up_sample}
+set.seed(123)
+training <- upSample(x=training[, -ncol(training)],
+                     y=as.factor(training$Heart.Attack.Risk))
+
+table(training$Class)
+```
+
+Perfect 50/50 split now!
+
+### Distributions
+
+#### Numerical Fields\
+
+Let's see what all of the wnumerical fields look like distribution wise.
+
+```{r distribution_hist, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+numerical_training <- subset(training, select=c(Age, Cholesterol, Systolic, Diastolic, Heart.Rate, Exercise.Hours.Per.Week, Stress.Level, Sedentary.Hours.Per.Day, Income, BMI, Triglycerides, Physical.Activity.Days.Per.Week, Sleep.Hours.Per.Day))
+
+my_plots_hist <- lapply(names(numerical_training), function(var_x) {
+  p <-
+    ggplot(numerical_training) +
+    aes_string(var_x) + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1))
+  p <- p + geom_histogram(stat="count")
+})
+
+plot_grid(plotlist = my_plots_hist)
+```
+
+At first glance, none of these distributions look normal unfortunately. 
+
+How do these look as boxplots?
+
+```{r distribution_box, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+my_plots_box <- lapply(names(numerical_training), function(var_x){
+  p <- 
+    ggplot(numerical_training) +
+    aes_string(var_x) + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1))
+    p <- p + geom_boxplot()
+})
+
+plot_grid(plotlist = my_plots_box)
+```
+
+At the very least, these distributions don't seem to have many if any outliers!
+
+#### Categorical Fields\
+
+```{r categorical_dist, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+categorical_hist <- subset(training, select=c(Sex, Diabetes, Family.History, Smoking, Obesity, Alcohol.Consumption, Diet, Previous.Heart.Problems, Medication.Use, Country, Continent, Hemisphere))
+
+my_plots_bar <- lapply(names(categorical_hist), function(var_x) {
+  p <-
+    ggplot(categorical_hist) +
+    aes_string(var_x) + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1))
+  p <- p + geom_bar(stat="count")
+})
+
+plot_grid(plotlist = my_plots_bar)
+```
+
+Interestingly, these don't look too equal in distribution -- particularly, there seems to be a lot more males than female sin this dataset when ideally, that'd be a 50/50 split. Smoking and Diabetes are other examples of disproportionate fields, however Sex is something we'd expect to be qual.
+
+Now that we have a sense of how the data is distributed, what do the relationships between the variables as well as with our target look like?
+
+### Correlations
+
+Let's see how each of the numerical fields correlate with `Heart.Attack.Risk` -- we'll start with the first six fields.
+
+```{r correlation_1, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+ggpairs(training[, c('Class', 'Age', 'Cholesterol', 'Systolic', 'Diastolic', 'Heart.Rate', 'Exercise.Hours.Per.Week')])
+```
+
+Interestingly, only one of the fields was statistically significant in correlation and that was `Heart.Rate`.
+
+Implication wise:
+
+- `Age` - not correlated - this says age is not a good indicator of whether someone is at risk for a heart attack; this is surprising as younger people are typically healthier than those who are older
+- `Cholesterol` - not correlated - this says that high or low cholesterol does not impact heart attack risk; this is surprising as you'd think high cholesterol is a sign of health issues
+- `Systolic` - not correlated - this says having high or low systolic blood pressure does not impact heart attack risk; this is surprising higher blood pressure could lead to health issues
+- `Diastolic` - not correlated -  this says having high or low diastolic blood pressure does not impact heart attack risk; this is surprising higher blood pressure could lead to health issues
+- `Heart.Rate` - negative effect - this says that the lower the heart rate, the less likely you are to be at risk; this is not surprising as lower heart rates would mean the heart is working less and thus isn't under as much stress
+- `Exercise.Hours.Per.Week` - not correlated - this says exercising or not does not impact heart attack risk; this is surprising as you'd think fitter people are less likely to have health issues
+
+What about the rest of the fields?
+
+```{r correlation_2, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+ggpairs(training[, c('Class', 'Stress.Level', 'Income', 'BMI', 'Triglycerides', 'Physical.Activity.Days.Per.Week', 'Sleep.Hours.Per.Day')])
+```
+
+It seems like none of these fields were correlated with our target variable.
+
+Implication wise:
+
+- `Stress.Level` - not correlated - this says that stress does not impact heart attack risk; this is a bit surprising as higher stress can theoretically put someone at risk 
+- `Income` - not correlated - this says that income does not impact heart attack risk; this isn't too surprising as income doesn't directly impact someone's proneness to being put at risk
+- `BMI` - not correlated - this says that BMI does not impact heart attack risk; this is a bit surprising as higher BMIers could indicate health risks
+- `Triglycerides` - not correlated - this says that triglycerides does not impact heart attack risk; this is a bit surprising as higher fat levels theoretically would point to more health issues
+- `Physical.Activity.Days.Per.Week` - not correlated - this says that physical activity does not impact heart attack risk; this is a bit surprising as the more active you are, the healthier you'd be theoretically
+- `Sleep.Hours.Per.Day` - not correlated - this says that sleep does not impact heart attack risk; this isn't as surprising as sleep isn't as contributing to heart issues
+
+There are some correlated fields here, but let's see if they're also correlated with each other beyond just the seven displayed here.
+
+```{r correlation_3, echo=FALSE}
+correlation = cor(numerical_training, use = 'pairwise.complete.obs')
+
+corrplot(correlation, 'ellipse', type = 'lower', order = 'hclust',
+         col=brewer.pal(n=8, name="RdYlBu"))
+```
+
+As noted above, it doesn't look like too many of these fields are correlated with one another.
+
+## Data Preparation
+
+### Outliers & Nulls
+
+As noted above, it doesn't seem that there are many outliers in this dataset and there are no null fields. After confirming that there are no rows in any of these fields with outliers, it's safe to move onto the next step.
+
+### Transform Non-Normal Variables
+
+The last alteration before modeling is ensuring that all numeric variables are normal by transforming the ones that don't seem to have much of normal distribution. It honestly looks like all fields are not normal unfortunately, so all of them will be adjusted.
+
+First, `log` will be applied and if that doesn't work, then `sqrt`, and finally if all else fails, `scaling`.
+
+```{r transform_log, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+training$log_Age <- ifelse(training$Age == 0, training$Age, log(training$Age))
+training$log_Cholesterol <- ifelse(training$Cholesterol == 0, training$Cholesterol, log(training$Cholesterol))
+training$log_Systolic <- ifelse(training$Systolic == 0, training$Systolic, log(training$Systolic))
+training$log_Diastolic <- ifelse(training$Diastolic == 0, training$Diastolic, log(training$Diastolic))
+training$log_Heart.Rate <- ifelse(training$Heart.Rate == 0, training$Heart.Rate, log(training$Heart.Rate))
+training$log_Exercise.Hours.Per.Week <- ifelse(training$Exercise.Hours.Per.Week == 0, training$Exercise.Hours.Per.Week, log(training$Exercise.Hours.Per.Week))
+training$log_Stress.Level <- ifelse(training$Stress.Level == 0, training$Stress.Level, log(training$Stress.Level))
+training$log_Sedentary.Hours.Per.Day <- ifelse(training$Sedentary.Hours.Per.Day == 0, training$Sedentary.Hours.Per.Day, log(training$Sedentary.Hours.Per.Day))
+training$log_Income <- ifelse(training$Income == 0, training$Income, log(training$Income))
+training$log_BMI <- ifelse(training$BMI == 0, training$BMI, log(training$BMI))
+training$log_Triglycerides <- ifelse(training$Triglycerides == 0, training$Triglycerides, log(training$Triglycerides))
+training$log_Physical.Activity.Days.Per.Week <- ifelse(training$Physical.Activity.Days.Per.Week == 0, training$Physical.Activity.Days.Per.Week, log(training$Physical.Activity.Days.Per.Week))
+training$log_Sleep.Hours.Per.Day <- ifelse(training$Sleep.Hours.Per.Day == 0, training$Sleep.Hours.Per.Day, log(training$Sleep.Hours.Per.Day))
+
+my_plots_hist <- lapply(names(training[28:40]), function(var_x){
+  p <- 
+    ggplot(training[28:40]) +
+    aes_string(var_x)
+  p <- p + geom_histogram()
+})
+
+plot_grid(plotlist = my_plots_hist)
+```
+
+Looking at this, the data at least shows more of a trend, however none of these curves are too normal. A majority of them look skewed to the left now, but it is very extreme.
+
+What about using `sqrt`?
+
+```{r transform_sqrt, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+training$sqrt_Age <- sqrt(training$Age)
+training$sqrt_Cholesterol <- sqrt(training$Cholesterol)
+training$sqrt_Systolic <- sqrt(training$Systolic)
+training$sqrt_Diastolic <- sqrt(training$Diastolic)
+training$sqrt_Heart.Rate <- sqrt(training$Heart.Rate)
+training$sqrt_Exercise.Hours.Per.Week <- sqrt(training$Exercise.Hours.Per.Week)
+training$sqrt_Stress.Level <- sqrt(training$Stress.Level)
+training$sqrt_Sedentary.Hours.Per.Day <- sqrt(training$Sedentary.Hours.Per.Day)
+training$sqrt_Income <- sqrt(training$Income)
+training$sqrt_BMI <- sqrt(training$BMI)
+training$sqrt_Triglycerides <- sqrt(training$Triglycerides)
+training$sqrt_Physical.Activity.Days.Per.Week <- sqrt(training$Physical.Activity.Days.Per.Week)
+training$sqrt_Sleep.Hours.Per.Day <- sqrt(training$Sleep.Hours.Per.Day)
+
+my_plots_hist <- lapply(names(training[41:53]), function(var_x){
+  p <- 
+    ggplot(training[41:53]) +
+    aes_string(var_x)
+  p <- p + geom_histogram()
+})
+
+plot_grid(plotlist = my_plots_hist)
+```
+
+This once again didn't seem to help -- what about `scaling`?
+
+```{r transform_scaling, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+
+training$scale_Age <- scale(training$Age)
+training$scale_Cholesterol <- scale(training$Cholesterol)
+training$scale_Systolic <- scale(training$Systolic)
+training$scale_Diastolic <- scale(training$Diastolic)
+training$scale_Heart.Rate <- scale(training$Heart.Rate)
+training$scale_Exercise.Hours.Per.Week <- scale(training$Exercise.Hours.Per.Week)
+training$scale_Stress.Level <- scale(training$Stress.Level)
+training$scale_Sedentary.Hours.Per.Day <- scale(training$Sedentary.Hours.Per.Day)
+training$scale_Income <- scale(training$Income)
+training$scale_BMI <- scale(training$BMI)
+training$scale_Triglycerides <- scale(training$Triglycerides)
+training$scale_Physical.Activity.Days.Per.Week <- scale(training$Physical.Activity.Days.Per.Week)
+training$scale_Sleep.Hours.Per.Day <- scale(training$Sleep.Hours.Per.Day)
+
+my_plots_hist <- lapply(names(training[54:66]), function(var_x){
+  p <- 
+    ggplot(training[54:66]) +
+    aes_string(var_x)
+  p <- p + geom_histogram()
+})
+
+plot_grid(plotlist = my_plots_hist)
+```
+
+Unfortunately, this also doesn't look great, but it does look a bit better than the non-transformed versions of these fields. When using transformed variables next, these scaled versions will be used as they look the cleanest out of the three attempts at transformations.
+
+## Build Models
+
+Before doing anything, we will split the data into training and test sets with a 70/30 split.
+
+```{r split, echo=FALSE, message=FALSE}
+set.seed(123)
+train_index <- createDataPartition(training$Class, p = .7, times = 1, list = FALSE)
+train <- training[train_index,]
+test <- training[-train_index,]
+```
+
+We'll go through two sets of models:
+
+- Model 1: Binomial Logistic Regression 
+- Modle 2: Decision Trees
+
+Let's begin with binary models.
+
+### Binary Models
+
+#### Model 1A
+
+```{r model1a, echo=FALSE}
+model1a <- glm(Class ~ 
+               scale_Age 
+             + scale_Cholesterol 
+             + scale_Systolic
+             + scale_Diastolic
+             + scale_Heart.Rate 
+             + scale_Exercise.Hours.Per.Week
+             + scale_Stress.Level
+             + scale_Sedentary.Hours.Per.Day
+             + scale_Income
+             + scale_BMI
+             + scale_Triglycerides
+             + scale_Physical.Activity.Days.Per.Week
+             + scale_Sleep.Hours.Per.Day
+             + Sex
+             + Diabetes
+             + Family.History
+             + Smoking
+             + Obesity
+             + Alcohol.Consumption
+             + Diet 
+             + Previous.Heart.Problems
+             + Medication.Use
+             + Country
+             + Continent
+             + Hemisphere
+             , data = train
+             , family = 'binomial')
+
+summary(model1a)
+```
+
+##### Interpretation\
+
+As there are so many variables, only those that are significant will be analyzed. Those variables are:
+
+- scale_Cholesterol
+  - Impact: Positive
+  - Meaning: The higher the cholesterol the more likely they are to be at risk; this makes sense as cholesterol is usually an indication of overall health and dietary trends
+- scale_Diastolic
+  - Impact: Negative
+  - Meaning: The higher the diastolic pressure, the less likely they are to be at risk; this does not make sense as higher blood pressure usually indicates health issues and higher risk for heart disease
+- scale_Sleep.Hours.Per.day
+  - Impact: Negative
+  - Meaning: The higher a person sleeps, the less likely they are to be at risk; this inherently makes sense as the more sleep a person gets, the healthier they'll be as they won't be as fatigued
+- Diabetes
+  - Impact: Positive
+  - Meaning: The presence of diabetes indicates that a person is more likely for heart attack risk; this makes sense as having diabetes is usually a risk factor for heart disease
+- Obesity
+  - Impact: Negative
+  - Meaning: The state of being obese indicates that a person is less likely for heart attack risk; this doesn't make as much sense as obese people are statistically more likely to have health issues related to diet and that impacts the heart 
+- Alcohol.Consumption
+  - Impact: Negative
+  - Meaning: If a person indulges in alcohol, they are less likely for heart attack risk; this inherently doesn't make too much sense as those who consume *too* much alcohol can be seen as a problem, but perhaps because of the lack of granularity in this field (ideally this would be the categorical variable as it outlined on Kaggle rather than a boolean), this is missing that distinction between light and heavy drinkers
+- CountryFrance
+  - Impact: Negative
+  - Meaning: If a person lives in France, they are less likely for heart attack risk; this is interesting as this could mean that certain aspects of France lead to a lifestyle taht is less prone to heart attacks
+- CountryIndia
+  - Impact: Negative
+  - Meaning Similar to the field above, this means if a person lives in india, they are less likely for heart attack risk
+- CountryItaly
+  - Impact: Negative
+  - Meaning: Similar to the two fields above, this means that if a person lives in Italy, they are less likely for heart attack risk
+  
+It should also be noted that the residual deviance is 10843 and the AIC is 10929 for comparison with future models.
+
+The next iteration of the model will be using only significant variables.
+
+#### Model 1B\
+
+```{r model1b_binary, echo=FALSE}
+model1b <- glm(Class ~ 
+             scale_Cholesterol
+             + scale_Diastolic
+             + scale_Sleep.Hours.Per.Day
+             + Diabetes
+             + Obesity
+             + Alcohol.Consumption
+             + Country
+             , data = train
+             , family = 'binomial')
+
+summary(model1b)
+```
+##### Interpretation\
+
+Each variable will be assessed one-by-one similar to the previous iteration:
+
+- Intercept
+  - Impact: Positive
+  - Meaning: Without any knowledge of other fields, a person is prone to heart attack risk
+- scale_Cholesterol
+  - Impact: Positive
+  - Comparison with previous model: This is still positive and the magnitude of the variable is similar so not much change here
+- scale_Diastolic
+  - Impact: Negative
+  - Comparison with previous model: This is still negative and the magnitude of the variable is similar so not much change here
+- scale_Sleep.Hours.Per.day
+  - Impact: Negative
+  - Comparison with previous model: This is still negative and the magnitude of the variable is similar so not much change here; this did however improve in significance (it is now more significant)
+- Diabetes
+  - Impact: Positive
+  - Comparison with previous model: This is still positive and the magnitude of the variable is similar so not much change here
+- Obesity
+  - Impact: Negative
+  - Comparison with previous model: This is still negative and the magnitude of the variable is similar so not much change here
+- Alcohol.Consumption
+  - Impact: Negative
+  - Comparison with previous model: This is still negative and the magnitude of the variable is similar so not much change here
+- CountryFrance
+  - Impact: Negative
+  - Comparison with previous model: This is still negative and the magnitude of the variable is similar so not much change here
+- CountryIndia
+  - Impact: Negative
+  - Comparison with previous model: This is still negative and the magnitude of the variable is similar so not much change here
+- CountryItaly
+  - Impact: Negative
+  - Comparison with previous model: This is still negative and the magnitude of the variable is similar so not much change here
+  
+It looks like the AIC went down, but residual deviance went up in comparison with the previous model.
+
+#### Model 2A\
+
+This model will use Decision Trees.
+
+```{r model2a, echo=FALSE}
+model2a <- rpart(Class ~ 
+               scale_Age 
+             + scale_Cholesterol 
+             + scale_Systolic
+             + scale_Diastolic
+             + scale_Heart.Rate 
+             + scale_Exercise.Hours.Per.Week
+             + scale_Stress.Level
+             + scale_Sedentary.Hours.Per.Day
+             + scale_Income
+             + scale_BMI
+             + scale_Triglycerides
+             + scale_Physical.Activity.Days.Per.Week
+             + scale_Sleep.Hours.Per.Day
+             + Sex
+             + Diabetes
+             + Family.History
+             + Smoking
+             + Obesity
+             + Alcohol.Consumption
+             + Diet 
+             + Previous.Heart.Problems
+             + Medication.Use
+             + Country
+             + Continent
+             + Hemisphere
+             , data = train
+             , method = "class")
+
+summary(model2a)
+fancyRpartPlot(model2a)
+```
+
+##### Interpretation\
+
+This tree is not very helpful -- it's saying that regardless of whether you are in one of the listed countries, there's a 50% chance that you will be at risk of a heart attack. 
+
+What if we remove the `Country` variable here?
+
+#### Model 2B\
+
+```{r model2b, echo=FALSE}
+model2b <- rpart(Class ~ 
+               scale_Age 
+             + scale_Cholesterol 
+             + scale_Systolic
+             + scale_Diastolic
+             + scale_Heart.Rate 
+             + scale_Exercise.Hours.Per.Week
+             + scale_Stress.Level
+             + scale_Sedentary.Hours.Per.Day
+             + scale_Income
+             + scale_BMI
+             + scale_Triglycerides
+             + scale_Physical.Activity.Days.Per.Week
+             + scale_Sleep.Hours.Per.Day
+             + Sex
+             + Diabetes
+             + Family.History
+             + Smoking
+             + Obesity
+             + Alcohol.Consumption
+             + Diet 
+             + Previous.Heart.Problems
+             + Medication.Use
+             + Continent
+             + Hemisphere
+             , data = train
+             , method = "class")
+
+summary(model2b)
+fancyRpartPlot(model2b)
+```
+
+This tree is a little more indicative -- it brings in income first, then checks BMI and cholesterol. 
+
+Now that we have two models, let's see how each performs.
+
+## Select Models
+
+### Binary Models
+
+#### Confusion Matrices\
+
+First, we'll take a look at confusion matrices for each of the models.
+
+```{r confusion_matrix_1a}
+# if the prediction is >= 0.5, then we would predict 1 for that row, otherwise 0
+test$model1a <- ifelse(predict.glm(model1a, test, "response") >= 0.5, 1, 0)
+
+# create the confusion matrix
+cm1a <- confusionMatrix(factor(test$model1a), factor(test$Class), "1")
+results <- tibble(Model = "Model #1A", Accuracy=cm1a$byClass[11], F1 = cm1a$byClass[7],
+                  Deviance= model1a$deviance, 
+                  R2 = 1 - model1a$deviance / model1a$null.deviance,
+                  AIC = model1a$aic)
+cm1a
+```
+
+```{r confusion_matrix_1b}
+# if the prediction is >= 0.5, then we would predict 1 for that row, otherwise 0
+test$model1b <- ifelse(predict.glm(model1b, test, "response") >= 0.5, 1, 0)
+
+# create the confusion matrix
+cm1b <- confusionMatrix(factor(test$model1b), factor(test$Class), "1")
+results <- tibble(Model = "Model #1B", Accuracy=cm1b$byClass[11], F1 = cm1b$byClass[7],
+                  Deviance= model1b$deviance, 
+                  R2 = 1 - model1b$deviance / model1b$null.deviance,
+                  AIC = model1b$aic)
+cm1b
+```
+
+```{r confusion_matrix_2a}
+test$model2a <- predict(model2a, test, type="class")
+
+# create the confusion matrix
+cm2a <- confusionMatrix(factor(test$model2a), factor(test$Class), "1")
+results <- tibble(Model = "Model #2A", Accuracy=cm2a$byClass[11], F1 = cm2a$byClass[7],
+                  Deviance= model2a$deviance, 
+                  R2 = 1 - model2a$deviance / model2a$null.deviance,
+                  AIC = model2a$aic)
+cm2a
+```
+```{r confusion_matrix_2b}
+test$model2b <- predict(model2b, test, type="class")
+
+# create the confusion matrix
+cm2b <- confusionMatrix(factor(test$model2b), factor(test$Class), "1")
+results <- tibble(Model = "Model #2B", Accuracy=cm1b$byClass[11], F1 = cm2b$byClass[7],
+                  Deviance= model2b$deviance, 
+                  R2 = 1 - model2b$deviance / model2b$null.deviance,
+                  AIC = model2b$aic)
+cm2b
+```
+
+#### ROC\
+
+Now with all of these matrices, we'll look at ROC curves.
+
+```{r roc}
+print('Model 1A ROC Curve')
+roc(test[["Class"]], test[["model1a"]], plot = TRUE, legacy.axes = TRUE, print.auc = TRUE)
+
+print('Model 1B ROC Curve')
+roc(test[["Class"]], test[["model1b"]], plot = TRUE, legacy.axes = TRUE, print.auc = TRUE)
+
+print('Model 2A ROC Curve')
+roc(test[["Class"]], as.numeric(test[["model2a"]]), plot = TRUE, legacy.axes = TRUE, print.auc = TRUE)
+
+print('Model 2B ROC Curve')
+roc(test[["Class"]], as.numeric(test[["model2b"]]), plot = TRUE, legacy.axes = TRUE, print.auc = TRUE)
+```
+
+#### Overall Comparisons\
+
+```{r comparing, echo=FALSE}
+# function to pull out performance statistics
+model_perf <- function(model, confusion_matrix) {
+  data.frame("Accuracy" = confusion_matrix$byClass[11],
+             "Precision" = confusion_matrix$byClass[5],
+             "Specificity" = confusion_matrix$byClass[2],
+             "Recall" = confusion_matrix$byClass[6],
+             "F1" = confusion_matrix$byClass[7]
+  )
+}
+
+summary_table <- bind_rows(
+  model_perf(model1a, cm1a),
+  model_perf(model1b, cm1b),
+  model_perf(model2a, cm2a),
+  model_perf(model2b, cm2b),
+) 
+
+rownames(summary_table) <- c("Model 1A", "Model 1B", "Model 2A", "Model 2B")
+
+summary_table
+```
+
+Based on the above output and the ROC graphs:
+
+- ROC/AUC: The B models were best here with Model 2B being slightly higher performing than Model 1B.
+- Accuracy: The B models were best here again, Model 2B being a bit higher while Model 1A was the best out of the As
+- Precision: Once again Model 2B is the best here and Model 1A is the best out of the As
+- Specificity: This is where Model 2B falls short with a very low value; Model 1A is the next best
+- Recall: Model 2B is much higher now here which somewhat corresponds with the lower specificity; it seems like Model 2B is over capturing positives. Regardless, the next highest here is Model 2A with Model 1A as the lowest
+- F1: Model 2B is the best here with Model 1B being the second best; Model 2A is the best out of the As
+
+### Conclusion
+
+Overall, despite Model 2B's strong performance, the fact that it's over capturing positives isn't a great outcome. The implications of this mean that people would be deemed as at risk for a heart attack when in reality, they're not. This could then lead to preventative measures being implemented and could potentially be very costly and time-consuming. 
+
+The next best performing model is 1B. At 50% for every other metric and the second best AUC, this is the next alternative overall, although it really isn't that much better than the rest of the models. It still slightly outperforms them though so this is the final selection!
